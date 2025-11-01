@@ -14,7 +14,7 @@ export default function Home() {
   const handleGenerate = async () => {
     setResponse("生成中です..."); // ローディング表示
     try {
-      const res = await fetch("/api/generate", { // 作成したAPIを呼び出す
+      const res = await fetch("http://localhost:8000/generate-quiz", { // 作成したAPIを呼び出す
         method: "POST",
         headers: {
           "Content-Type": "application/json",
