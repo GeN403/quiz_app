@@ -9,10 +9,9 @@ AI（Gemini API）を活用し、クイズ問題を自動生成・出題するWe
 | Layer | Technology | Purpose |
 |-------|-------------|----------|
 | **Frontend** | Next.js / TypeScript / Material UI | Web UI構築、SSR対応 |
-| **Backend** | Next.js API Routes (TypeScript) | LLM呼び出し・レスポンス処理 |
-| **AI Layer** | Python + Gemini API | 問題生成・LLMプロンプト実験 |
+| **Backend** | FastAPI (Python) | AI連携・クイズ生成APIサーバー |
 | **Database** | (予定) Firebase / Supabase | ユーザー・スコア・リアルタイム同期 |
-| **Future Infra** | (予定) FastAPI / Docker / React Native | 拡張・モバイル化対応 |
+| **Future Infra** | (予定) Docker / React Native | コンテナ化・モバイル化対応 |
 
 ---
 
@@ -55,29 +54,23 @@ User
 
 ```plaintext
 quiz_app/
-├── frontend/ # Next.js + TypeScript
+├── frontend/ # Next.jsのプロジェクト本体
 │ ├── app/
 │ ├── public/
-│ ├── types/
-│ ├── package.json
-│ └── tsconfig.json
+│ └── ... (Next.jsのその他設定ファイル)
 │
-├── backend/ # Python + Gemini API連携
-│ ├── main.py
+├── backend/ # FastAPIのバックエンド
+│ ├── Scripts/ (Python仮想環境)
+│ ├── Lib/ (Python仮想環境)
+│ ├── main.py (APIサーバー本体)
 │ ├── requirements.txt
-│ ├── .env
-│ └── notebooks/ # LLM検証用ノート
-│ ├── prompt_test.ipynb
-│ └── report.md
+│ └── .env
 │
-├── docs/ # メモ・仕様書
-│ ├── memo.txt
-│ └── architecture.md
-│
+├── node_modules/ # フロントエンドのライブラリ
 ├── .gitignore
-├── LICENSE
+├── package.json # Next.jsのパッケージ管理ファイル
 ├── README.md
-└── docker-compose.yml
+└── tsconfig.json
 ```
 
 ---
@@ -85,14 +78,30 @@ quiz_app/
 ## 準備
 
 ```bash
-# フロントエンドセットアップ
-npm install
-npm run dev
+# 1. リポジトリをクローン
+git clone https://github.com/GeN403/quiz_app.git
+cd quiz_app
 
-# AI Layer setup
-cd ai
+# 2. バックエンド (FastAPI) のセットアップ
+# (ターミナル1 🤖)
+cd backend
+python -m venv venv
+.\Scripts\Activate
 pip install -r requirements.txt
-python prompt_test.py
+
+# 3. フロントエンド (Next.js) のセットアップ
+# (ターミナル2 💻)
+# ※ quiz_appのルートフォルダで実行
+npm install
+
+# 4. サーバーの起動
+# (ターミナル1 🤖)
+cd backend
+uvicorn main:app --reload
+
+# (ターミナル2 💻)
+# ※ quiz_appのルートフォルダで実行
+npx next dev frontend --turbopack
 ```
 
 ---
@@ -134,40 +143,6 @@ GitHub: [https://github.com/GeN403](https://github.com/GeN403)
 ---
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
-## Getting Started
-
-First, run the development server:
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
 ## 更新履歴
 - 2025-10: プロジェクト構成をリファクタリングし、フロントエンドとバックエンドを明確に分離。
