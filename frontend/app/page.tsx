@@ -3,16 +3,46 @@
 "use client";
 
 import { useState } from "react"; // useStateをインポート
-import { Box, Button, TextField, Typography, Paper } from "@mui/material";
+import {
+  Box,
+  Button,
+  TextField,
+  Typography,
+  Paper,
+  CircularProgress, // ローディングスピナー用
+  Collapse, // アコーディオン用
+  Alert, // エラー表示用
+} from "@mui/material";
+
+// AIから返ってくるJSONの型を定義
+interface QuizData {
+  question: string;
+  answer: string;
+  "Alternative Solutions/Correctness Judgment Criteria": string;
+  explanation: string;
+  source: {
+    title: string;
+    url: string;
+  };
+}
 
 export default function Home() {
   // ユーザーが入力したURLを保存するための箱
   const [url, setUrl] = useState<string>("");
-  // AIからの返事を保存するための箱
-  const [response, setResponse] = useState<string>("");
+  // クイズデータ（オブジェクト）を保存する箱
+  const [quiz, setQuiz] = useState<QuizData | null>(null);
+  // ローディング状態を管理する箱
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  // エラーメッセージを保存する箱
+  const [error, setError] = useState<string>("");
+  // 答えを表示するかどうかを管理する箱
+  const [showAnswer, setShowAnswer] = useState<boolean>(false);
 
   const handleGenerate = async () => {
-    setResponse("生成中です..."); // ローディング表示
+    setQuiz(null); // 前のクイズをリセット
+    setError(""); // 前のエラーをリセット
+    setIsLoading(true); // ローディング開始
+    setShowAnswer(false); // 答えを隠す
     try {
       const res = await fetch("http://localhost:8000/generate-quiz", { // 作成したAPIを呼び出す
         method: "POST",
@@ -27,10 +57,12 @@ export default function Home() {
       }
 
       const data = await res.json();
-      setResponse(data.result); // AIの返事を箱に入れる
-    } catch (error) {
+      setQuiz(data); // クイズデータをオブジェクトとして保存
+    } catch (error: any) {
       console.error(error);
-      setResponse("エラーが発生しました。");
+      setError(error.message || "不明なエラーが発生しました。");
+    } finally {
+      setIsLoading(false); // ローディング終了
     }
   };
 
@@ -44,36 +76,116 @@ export default function Home() {
         minHeight: "100vh",
         padding: 4,
         gap: 2,
+        backgroundColor: "#f5f5f5", // 背景色を少しつける
       }}
     >
       <Typography variant="h4" component="h1" gutterBottom>
         クイズ自動生成プロトタイプ
       </Typography>
-      <TextField
-        id="url-input"
-        label="クイズ生成元のURL"
-        variant="outlined"
-        sx={{ width: "100%", maxWidth: "600px" }}
-        value={url} // 入力値をurlの箱と連動
-        onChange={(e) => setUrl(e.target.value)} // 入力されたらurlの箱を更新
-      />
-      <Button variant="contained" size="large" onClick={handleGenerate}>
-        生成
-      </Button>
 
-      {/* AIからの返事があれば表示するエリア */}
-      {response && (
+      {/* --- 入力エリア --- */}
+      <Paper
+        sx={{
+          p: 2,
+          width: "100%",
+          maxWidth: "700px",
+          display: "flex",
+          gap: 2,
+        }}
+      >
+        <TextField
+          id="url-input"
+          label="クイズ生成元のURL"
+          variant="outlined"
+          fullWidth
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          disabled={isLoading} // 生成中は無効化
+        />
+        <Button
+          variant="contained"
+          size="large"
+          onClick={handleGenerate}
+          disabled={isLoading} // 生成中は無効化
+          sx={{ whiteSpace: "nowrap" }}
+        >
+          {isLoading ? <CircularProgress size={24} /> : "生成"}
+        </Button>
+      </Paper>
+
+      {/* --- エラー表示エリア --- */}
+      {error && (
+        <Alert severity="error" sx={{ width: "100%", maxWidth: "700px" }}>
+          {error}
+        </Alert>
+      )}
+
+      {/* --- クイズ表示エリア --- */}
+      {quiz && (
         <Paper
           elevation={3}
           sx={{
-            p: 2,
+            p: 3,
             mt: 2,
             width: "100%",
-            maxWidth: "600px",
-            whiteSpace: "pre-wrap", // 改行をそのまま表示
+            maxWidth: "700px",
+            "& > *": { mb: 2 }, // 各要素の間にマージン
           }}
         >
-          {response}
+          {/* 質問文 */}
+          <Typography variant="h5" component="h2" sx={{ fontWeight: "bold" }}>
+            問題
+          </Typography>
+          <Typography
+            variant="body1"
+            sx={{ fontSize: "1.2rem", whiteSpace: "pre-wrap", lineHeight: 1.8 }}
+          >
+            {quiz.question}
+          </Typography>
+
+          <Button
+            variant="outlined"
+            onClick={() => setShowAnswer(!showAnswer)}
+          >
+            {showAnswer ? "答えを隠す" : "答えと解説を見る"}
+          </Button>
+
+          {/* 答えと解説 (アコーディオンで表示) */}
+          <Collapse in={showAnswer}>
+            {/* 正解 */}
+            <Typography variant="h6" component="h3" sx={{ mt: 2 }}>
+              正解
+            </Typography>
+            <Typography variant="body1" sx={{ fontSize: "1.1rem", color: "green", fontWeight: "bold" }}>
+              {quiz.answer}
+            </Typography>
+
+            {/* 別解 */}
+            <Typography variant="h6" component="h3" sx={{ mt: 2 }}>
+              別解/正誤判定基準
+            </Typography>
+            <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
+              {quiz["Alternative Solutions/Correctness Judgment Criteria"]}
+            </Typography>
+
+            {/* 解説 */}
+            <Typography variant="h6" component="h3" sx={{ mt: 2 }}>
+              解説
+            </Typography>
+            <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
+              {quiz.explanation}
+            </Typography>
+
+            {/* 出典 */}
+            <Typography variant="h6" component="h3" sx={{ mt: 2 }}>
+              出典
+            </Typography>
+            <Typography variant="body2">
+              <a href={quiz.source.url} target="_blank" rel="noopener noreferrer">
+                {quiz.source.title}
+              </a>
+            </Typography>
+          </Collapse>
         </Paper>
       )}
     </Box>

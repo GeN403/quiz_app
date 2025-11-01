@@ -8,7 +8,7 @@ AI（Gemini API）を活用し、クイズ問題を自動生成・出題するWe
 
 | Layer | Technology | Purpose |
 |-------|-------------|----------|
-| **Frontend** | Next.js / TypeScript / Chakra UI | Web UI構築、SSR対応 |
+| **Frontend** | Next.js / TypeScript / Material UI | Web UI構築、SSR対応 |
 | **Backend** | Next.js API Routes (TypeScript) | LLM呼び出し・レスポンス処理 |
 | **AI Layer** | Python + Gemini API | 問題生成・LLMプロンプト実験 |
 | **Database** | (予定) Firebase / Supabase | ユーザー・スコア・リアルタイム同期 |
