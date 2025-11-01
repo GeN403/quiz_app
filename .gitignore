@@ -45,3 +45,10 @@ frontend/.next/
 
 # Node modules
 frontend/node_modules/
+
+# Python/FastAPI Backend Virtual Environment
+backend/Lib/
+backend/Scripts/
+backend/Include/
+backend/__pycache__/
+backend/.env
