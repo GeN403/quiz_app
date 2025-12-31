@@ -149,23 +149,23 @@ prompt_template = f"""
 def get_web_info(url: str):
     """URLから本文テキストとタイトルを抽出する関数"""
     try:
-        print(f"📄 '{url}' から情報を取得中...")
+        print(f"[INFO] '{url}' から情報を取得中...")
         response = requests.get(url, timeout=10)
         response.raise_for_status()
-        
+
         soup = BeautifulSoup(response.content, 'html.parser')
-        
+
         # タイトルを取得
         title = soup.title.string if soup.title else "タイトル不明"
-        
+
         for tag in soup(['script', 'style', 'header', 'footer', 'nav', 'aside']):
             tag.decompose()
-        
+
         body_text = soup.get_text(separator='\n', strip=True)
-        print("✅ 情報の取得完了！")
+        print("[OK] 情報の取得完了！")
         return body_text, title
     except requests.RequestException as e:
-        print(f"❌ URLの取得に失敗しました: {e}")
+        print(f"[ERROR] URLの取得に失敗しました: {e}")
         return None, None
     
 
@@ -184,24 +184,24 @@ async def generate_quiz(request: QuizRequest):
     # テキストが長すぎるとタイムアウトするため、先頭8000文字程度に制限する
     MAX_LENGTH = 8000
     if len(source_text) > MAX_LENGTH:
-        print(f"⚠️ テキストが長すぎたため、{MAX_LENGTH}文字に短縮します。")
+        print(f"[WARNING] テキストが長すぎたため、{MAX_LENGTH}文字に短縮します。")
         source_text = source_text[:MAX_LENGTH]
 
     try:
         # --- AI呼び出し（1回だけ） ---
-        print("\n--- ① 生成フェーズ ---")
+        print("\n--- [1] 生成フェーズ ---")
         full_prompt = prompt_template.format(
             source_title=source_title,
             source_url=request.url,
             source_text=source_text
         )
-        print("🤖 AIにクイズを生成させています...")
+        print("[AI] クイズを生成中...")
         response = model.generate_content(full_prompt)
         
         # AIの生の応答をクリーンアップ
         final_text = response.text.strip()
-        
-        print("--- 🤖 AIの最終RAW応答 (デバッグ用) ---")
+
+        print("--- [DEBUG] AIの最終RAW応答 ---")
         print(final_text)
         print("---------------------------------")
 
@@ -212,8 +212,8 @@ async def generate_quiz(request: QuizRequest):
             final_text = final_text[3:].strip()
         if final_text.endswith("```"):
             final_text = final_text[:-3].strip()
-        
-        print("✅ 最終版が完成しました！(クリーンアップ後)")
+
+        print("[OK] 最終版が完成しました！(クリーンアップ後)")
         
         # JSON文字列をPythonの辞書に変換して返す
         final_json = json.loads(final_text)
@@ -221,11 +221,11 @@ async def generate_quiz(request: QuizRequest):
         
     # エラーキャッチをより具体的にする
     except json.JSONDecodeError as e:
-        print(f"❌ JSONデコードエラー: {e}")
+        print(f"[ERROR] JSONデコードエラー: {e}")
         print("--- 失敗したテキスト (上記ログ参照) ---")
         raise HTTPException(status_code=500, detail=f"AIが有効なJSONを返しませんでした。RAW: {final_text}")
     except Exception as e:
-        print(f"❌ API処理中にエラーが発生しました: {e}")
+        print(f"[ERROR] API処理中にエラーが発生しました: {e}")
         raise HTTPException(status_code=500, detail="AIによるクイズ生成中にエラーが発生しました。")
 
 # --- メインの処理 ---
