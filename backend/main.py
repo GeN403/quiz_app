@@ -1,5 +1,7 @@
 # main.py
 import os
+import sys
+import io
 import requests
 from bs4 import BeautifulSoup
 import google.generativeai as genai
@@ -9,6 +11,12 @@ import json
 import re
 from urllib.parse import urlparse
 from pathlib import Path
+
+# Windows環境でのUTF-8出力を強制（cp932エンコーディングエラー対策）
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+if sys.stderr.encoding != 'utf-8':
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 # FastAPI関連のインポート
 from fastapi import FastAPI, HTTPException
@@ -261,9 +269,16 @@ def validate_urls_in_response(response_text: str):
 
 # ----------------------------------------------------
 
-def build_dynamic_prompt(category_name: str, source_type: str, source_value: Optional[str], question_count: int) -> str:
+def build_dynamic_prompt(category_name: str, source_type: str, source_value: Optional[str], question_count: int, fetched_content: Optional[str] = None) -> str:
     """
     生成パラメータに応じて動的にプロンプトを構築する
+
+    Args:
+        category_name: カテゴリ名
+        source_type: "category" または "url"
+        source_value: URL（source_type="url"の場合）
+        question_count: 生成する問題数
+        fetched_content: URLから取得したページ本文（source_type="url"の場合）
     """
     # 基本的な制約条件
     base_constraints = CONSTRAINT_RULES
@@ -285,7 +300,25 @@ def build_dynamic_prompt(category_name: str, source_type: str, source_value: Opt
 """
 
     # ソースタイプに応じた指示
-    if source_type == "url" and source_value:
+    if source_type == "url" and source_value and fetched_content:
+        # URLから取得したコンテンツを含める
+        source_instruction = f"""
+# 参照元指定
+・以下のURLから取得した内容**のみ**を根拠に問題を作成してください：
+  URL: {source_value}
+
+# ページ本文
+```
+{fetched_content[:5000]}
+```
+（※長い場合は先頭5000文字まで）
+
+・上記のページ本文の内容のみを使用して問題を作成してください。
+・このURL以外の情報や、あなたの既知の知識を参照してはいけません。
+・"source"の"url"には、必ずこのURLを設定してください。
+"""
+    elif source_type == "url" and source_value:
+        # フォールバック: コンテンツ取得失敗時
         source_instruction = f"""
 # 参照元指定
 ・以下のURLの内容**のみ**を根拠に問題を作成してください：
@@ -329,24 +362,89 @@ def build_dynamic_prompt(category_name: str, source_type: str, source_value: Opt
 def get_web_info(url: str):
     """URLから本文テキストとタイトルを抽出する関数"""
     try:
-        print(f"[INFO] '{url}' から情報を取得中...")
-        response = requests.get(url, timeout=10)
+        print(f"[FETCH] '{url}' から情報を取得中...")
+
+        # User-Agentを設定してブロックを回避
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        response = requests.get(url, timeout=10, headers=headers, allow_redirects=True)
+
+        # ステータスコードとリダイレクト情報をログ
+        print(f"[FETCH] HTTP Status: {response.status_code}")
+        print(f"[FETCH] Final URL: {response.url}")
+        print(f"[FETCH] Content-Type: {response.headers.get('Content-Type', 'unknown')}")
+        print(f"[FETCH] Content-Length: {len(response.content)} bytes")
+
         response.raise_for_status()
+
+        # エンコーディング確認
+        if response.encoding:
+            print(f"[FETCH] Encoding: {response.encoding}")
 
         soup = BeautifulSoup(response.content, 'html.parser')
 
         # タイトルを取得
         title = soup.title.string if soup.title else "タイトル不明"
+        print(f"[PARSE] ページタイトル: {title}")
 
+        # 不要タグを除去
         for tag in soup(['script', 'style', 'header', 'footer', 'nav', 'aside']):
             tag.decompose()
 
         body_text = soup.get_text(separator='\n', strip=True)
+
+        # テキスト長をログ
+        print(f"[PARSE] 抽出テキスト長: {len(body_text)} 文字")
+        print(f"[PARSE] テキスト先頭200文字: {body_text[:200]}...")
+
+        if not body_text or len(body_text) < 100:
+            print(f"[WARNING] 抽出テキストが短すぎます（{len(body_text)}文字）")
+            return None, None
+
         print("[OK] 情報の取得完了！")
         return body_text, title
+    except requests.exceptions.Timeout as e:
+        print(f"[ERROR] タイムアウト: {e}")
+        raise HTTPException(
+            status_code=504,
+            detail=f"URL_FETCH_TIMEOUT: URLの取得がタイムアウトしました（10秒以内に応答なし）: {url}"
+        )
+    except requests.exceptions.HTTPError as e:
+        status_code = e.response.status_code if e.response else 500
+        print(f"[ERROR] HTTP Error {status_code}: {e}")
+        if status_code == 403:
+            raise HTTPException(
+                status_code=403,
+                detail=f"URL_FETCH_FORBIDDEN: URLへのアクセスが拒否されました（403 Forbidden）。サイトがBot アクセスをブロックしている可能性があります: {url}"
+            )
+        elif status_code == 404:
+            raise HTTPException(
+                status_code=404,
+                detail=f"URL_NOT_FOUND: URLが見つかりませんでした（404 Not Found）: {url}"
+            )
+        elif status_code == 429:
+            raise HTTPException(
+                status_code=429,
+                detail=f"URL_RATE_LIMIT: レート制限に達しました（429 Too Many Requests）。しばらく待ってから再試行してください: {url}"
+            )
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail=f"URL_FETCH_ERROR: URLの取得に失敗しました（HTTP {status_code}）: {url}"
+            )
     except requests.RequestException as e:
         print(f"[ERROR] URLの取得に失敗しました: {e}")
-        return None, None
+        raise HTTPException(
+            status_code=500,
+            detail=f"URL_FETCH_FAILED: URLの取得に失敗しました。ネットワークエラーまたは無効なURLの可能性があります: {str(e)}"
+        )
+    except Exception as e:
+        print(f"[ERROR] HTMLパース中にエラー: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"URL_PARSE_ERROR: ページ内容の解析に失敗しました: {str(e)}"
+        )
     
 
 @app.post("/generate-quiz")
@@ -390,6 +488,23 @@ async def generate_quiz(request: QuizRequest):
     print(f"[INFO] 生成モード: {request.source_type}, 問題数: {request.question_count}")
 
     try:
+        # --- URL指定時のコンテンツ取得 ---
+        fetched_content = None
+        if request.source_type == "url" and request.source_value:
+            print(f"\n--- [0] URL取得フェーズ ---")
+            print(f"[INFO] URL指定モード: {request.source_value}")
+
+            # get_web_info() を呼び出してページ本文を取得
+            fetched_content, page_title = get_web_info(request.source_value)
+
+            if not fetched_content:
+                raise HTTPException(
+                    status_code=400,
+                    detail="URL_CONTENT_EMPTY: URLからコンテンツを抽出できませんでした。ページが空であるか、テキストが極端に少ない可能性があります。"
+                )
+
+            print(f"[OK] コンテンツ取得成功: タイトル='{page_title}', 本文={len(fetched_content)}文字")
+
         # --- AI呼び出し ---
         print("\n--- [1] 生成フェーズ ---")
 
@@ -398,7 +513,8 @@ async def generate_quiz(request: QuizRequest):
             category_name=category_name,
             source_type=request.source_type,
             source_value=request.source_value,
-            question_count=request.question_count
+            question_count=request.question_count,
+            fetched_content=fetched_content
         )
         print("[AI] クイズを生成中...")
 
@@ -499,7 +615,7 @@ async def generate_quiz(request: QuizRequest):
 
         print(f"[OK] URL検証完了: {len(all_urls)}件のURLがすべて許可リストに含まれています")
         for url in all_urls:
-            print(f"  ✓ {url}")
+            print(f"  [OK] {url}")
 
         # レスポンス形式の統一
         # 単問の場合: オブジェクトを返す（後方互換性）
@@ -530,11 +646,22 @@ async def generate_quiz(request: QuizRequest):
     except HTTPException:
         # HTTPExceptionはそのまま再スロー（上記で投げたエラー）
         raise
-    except Exception as e:
-        print(f"[ERROR] API処理中にエラーが発生しました: {e}")
+    except UnicodeEncodeError as e:
+        # Windows console encoding issue - log safely
+        error_msg = f"UnicodeEncodeError: codec={e.encoding}, object={e.object[:50]}, start={e.start}, end={e.end}"
+        print(f"[ERROR] エンコーディングエラー（無視して処理継続）: {error_msg}")
+        # This is just a logging issue, not a functional problem - don't raise
         raise HTTPException(
             status_code=500,
-            detail=f"QUIZ_GENERATION_ERROR: クイズ生成中にエラーが発生しました: {str(e)}"
+            detail="ENCODING_ERROR: コンソール出力時のエンコーディングエラーが発生しました（生成自体は成功している可能性があります）"
+        )
+    except Exception as e:
+        error_str = str(e)
+        # Avoid printing strings that might contain non-cp932 characters
+        print(f"[ERROR] API処理中にエラーが発生しました: {error_str[:100]}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"QUIZ_GENERATION_ERROR: クイズ生成中にエラーが発生しました: {error_str}"
         )
 
 # --- メインの処理 ---
