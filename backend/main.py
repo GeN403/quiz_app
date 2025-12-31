@@ -140,7 +140,10 @@ CATEGORY_NAMES = {
 CONSTRAINT_RULES = """
 ・必ず「問題文」「正解」「別解/正誤判定基準」「解説」「出典」の要素を含めてください。
 ・出力はJSON形式で、以下のキーを持つオブジェクトとしてください: "question", "answer", "Alternative Solutions/Correctness Judgment Criteria", "explanation","source"
-・"source"にはウェブページタイトルとURLを含めてください。
+・"source"には以下のフィールドを含めてください：
+  - "title": ウェブページタイトルまたはトピック名
+  - "url": 参照元URL（必須）
+  - "quote": 参照元からの引用（30〜120文字程度、URL指定時は必須、カテゴリ指定時は任意）
 ・問題の後半で問題の答えを一意に絞れるような情報を盛り込んでください。
 ・日本語での呼び方と外来語としての呼び方の両方が存在する場合、別解として「別解/正誤判定基準」欄にその旨を記載するか、どちらか一方に限定できる問題文に改めてください。
 ・文末は「～でしょう？」としてください。
@@ -159,8 +162,9 @@ CONSTRAINT_RULES = """
   1. コトバンク（https://kotobank.jp）
   2. 公式サイト（*.go.jp、*.ac.jp、企業の公式ドメイン）
 ・ブログ、まとめサイト、SNS、Q&Aサイト（例：知恵袋、Quora等）は参照禁止です。
-・"source"の"url"には、必ず上記の許可された参照元のURLを1つ以上含めてください。
-・URLは絶対に捏造しないでください。適切な参照URLを提示できない場合は、"url"フィールドに「参照URLを提示できません」と記載してください。
+・"source"の"url"には、上記の許可された参照元のURLを設定してください。
+・URLは絶対に捏造しないでください。
+・適切な参照URLを提示できない場合は、"url"フィールドに「参照URLを提示できません」と記載してください（この場合"quote"は不要）。
 """
 
 # --- ① AIへの最終的な指示プロンプト（カテゴリベース） ---
@@ -244,6 +248,8 @@ def validate_urls_in_response(response_text: str):
     """
     レスポンステキストに含まれるURLを検証する
     許可外URLがあれば、それらをリストで返す
+
+    ⚠️ 非推奨: validate_sources() を使用してください
     """
     additional_domains = load_allowed_domains()
     urls = extract_urls_from_text(response_text)
@@ -266,6 +272,130 @@ def validate_urls_in_response(response_text: str):
             invalid_urls.append(url)
 
     return urls, invalid_urls
+
+def validate_sources(final_json, request):
+    """
+    生成されたJSON（単問 or 複数問）のsourceフィールドを検証する
+
+    Args:
+        final_json: パース済みのJSON（dict or list）
+        request: QuizRequest オブジェクト
+
+    Returns:
+        None（検証成功時）
+
+    Raises:
+        HTTPException（検証失敗時）
+    """
+    additional_domains = load_allowed_domains()
+
+    # 単問/複数問の正規化
+    if isinstance(final_json, list):
+        quiz_list = final_json
+    elif isinstance(final_json, dict):
+        quiz_list = [final_json]
+    else:
+        raise HTTPException(
+            status_code=500,
+            detail="INVALID_JSON_STRUCTURE: 生成結果が想定外の形式です（dict or list が必要）"
+        )
+
+    # 各問題のsourceを検証
+    for idx, quiz in enumerate(quiz_list):
+        quiz_num = idx + 1
+
+        # sourceフィールドの存在確認
+        if "source" not in quiz:
+            raise HTTPException(
+                status_code=400,
+                detail=f"SOURCE_MISSING: 問題{quiz_num}にsourceフィールドがありません"
+            )
+
+        source = quiz["source"]
+
+        # source.urlの存在確認
+        if "url" not in source:
+            raise HTTPException(
+                status_code=400,
+                detail=f"SOURCE_URL_MISSING: 問題{quiz_num}のsource.urlが存在しません"
+            )
+
+        source_url = source["url"]
+
+        # --- URLモードの検証 ---
+        if request.source_type == "url":
+            # 1. source.urlが入力URLと一致するか
+            if source_url != request.source_value:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"SOURCE_URL_MISMATCH: 問題{quiz_num}のsource.url（{source_url}）が入力URL（{request.source_value}）と一致しません"
+                )
+
+            # 2. source.urlのドメインが許可リストに含まれるか
+            try:
+                parsed = urlparse(source_url)
+                domain = parsed.netloc
+                if not is_domain_allowed(domain, additional_domains):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"SOURCE_URL_DOMAIN_NOT_ALLOWED: 問題{quiz_num}のsource.url（{source_url}）のドメイン（{domain}）は許可リストに含まれていません"
+                    )
+            except Exception as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"SOURCE_URL_PARSE_ERROR: 問題{quiz_num}のsource.urlの解析に失敗しました: {str(e)}"
+                )
+
+            # 3. source.quoteが存在し、空でないか
+            if "quote" not in source:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"SOURCE_QUOTE_MISSING: URLモードでは問題{quiz_num}のsource.quoteが必須です"
+                )
+
+            quote = source["quote"].strip() if isinstance(source["quote"], str) else ""
+            if not quote:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"SOURCE_QUOTE_EMPTY: URLモードでは問題{quiz_num}のsource.quoteを空にできません"
+                )
+
+            # 4. quoteの長さチェック（30-120文字程度）
+            if len(quote) < 30:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"SOURCE_QUOTE_TOO_SHORT: 問題{quiz_num}のsource.quoteが短すぎます（{len(quote)}文字、最低30文字必要）"
+                )
+            if len(quote) > 150:
+                print(f"[WARNING] 問題{quiz_num}のsource.quoteが長い（{len(quote)}文字）ですが許可します")
+
+        # --- カテゴリモードの検証 ---
+        else:  # source_type == "category"
+            # 「参照URLを提示できません」の場合はスキップ
+            if source_url == "参照URLを提示できません":
+                print(f"[INFO] 問題{quiz_num}: カテゴリモードでURL提示なし（許可）")
+                continue
+
+            # 実際のURLの場合は許可ドメイン検証
+            if source_url.startswith(("http://", "https://")):
+                try:
+                    parsed = urlparse(source_url)
+                    domain = parsed.netloc
+                    if not is_domain_allowed(domain, additional_domains):
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"SOURCE_URL_DOMAIN_NOT_ALLOWED: 問題{quiz_num}のsource.url（{source_url}）のドメイン（{domain}）は許可リストに含まれていません"
+                        )
+                    print(f"[OK] 問題{quiz_num}: カテゴリモードのURL検証成功（{domain}）")
+                except HTTPException:
+                    raise
+                except Exception as e:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"SOURCE_URL_PARSE_ERROR: 問題{quiz_num}のsource.urlの解析に失敗しました: {str(e)}"
+                    )
+
+    print(f"[OK] source検証完了: {len(quiz_list)}問すべて検証成功")
 
 # ----------------------------------------------------
 
@@ -315,7 +445,8 @@ def build_dynamic_prompt(category_name: str, source_type: str, source_value: Opt
 
 ・上記のページ本文の内容のみを使用して問題を作成してください。
 ・このURL以外の情報や、あなたの既知の知識を参照してはいけません。
-・"source"の"url"には、必ずこのURLを設定してください。
+・"source"の"url"には、必ずこのURL（{source_value}）を設定してください。
+・**"source"の"quote"には、上記ページ本文から引用した30〜120文字程度のテキストを必ず設定してください**（問題の根拠となる重要な部分を抜粋）。
 """
     elif source_type == "url" and source_value:
         # フォールバック: コンテンツ取得失敗時
@@ -325,6 +456,7 @@ def build_dynamic_prompt(category_name: str, source_type: str, source_value: Opt
   {source_value}
 ・このURL以外の情報を参照してはいけません。
 ・"source"の"url"には、必ずこのURLを設定してください。
+・"source"の"quote"には、参照元からの引用を30〜120文字程度で設定してください。
 """
     else:
         source_instruction = f"""
@@ -352,7 +484,8 @@ def build_dynamic_prompt(category_name: str, source_type: str, source_value: Opt
 ・"source"の"url"には、そのトピックに関連する信頼できる参考URLを設定してください
   - 必ずコトバンク（https://kotobank.jp）または公式サイト（*.go.jp、*.ac.jp）のURLを使用してください
   - ブログ、まとめサイト、SNS、Q&Aサイトは使用禁止です
-  - 適切なURLが見つからない場合は、「参照URLを提示できません」と記載してください
+  - 適切なURLが見つからない場合は、「参照URLを提示できません」と記載してください（この場合"quote"は空文字列""で構いません）
+・"source"の"quote"には、参照元からの引用文を設定してください（URL指定時は必須、カテゴリ指定時は任意）
 """
 
     return prompt
@@ -599,23 +732,9 @@ async def generate_quiz(request: QuizRequest):
         # JSON文字列をPythonのオブジェクト（辞書 or リスト）に変換
         final_json = json.loads(final_text)
 
-        # --- URL検証フェーズ ---
-        print("\n--- [URL検証] 参照元制限チェック ---")
-        all_urls, invalid_urls = validate_urls_in_response(final_text)
-
-        if invalid_urls:
-            # 許可外URLが含まれている場合はエラー
-            print(f"[ERROR] 参照元制約違反: {len(invalid_urls)}件の許可外URLを検出")
-            for url in invalid_urls:
-                print(f"  - {url}")
-            raise HTTPException(
-                status_code=400,
-                detail=f"SOURCE_RESTRICTION_VIOLATION: 参照元が制限（コトバンク/公式サイト）に一致しません。検出された許可外URL: {', '.join(invalid_urls[:3])}"
-            )
-
-        print(f"[OK] URL検証完了: {len(all_urls)}件のURLがすべて許可リストに含まれています")
-        for url in all_urls:
-            print(f"  [OK] {url}")
+        # --- source検証フェーズ ---
+        print("\n--- [SOURCE検証] source.url/quote検証 ---")
+        validate_sources(final_json, request)
 
         # レスポンス形式の統一
         # 単問の場合: オブジェクトを返す（後方互換性）
