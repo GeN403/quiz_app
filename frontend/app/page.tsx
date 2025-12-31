@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useState } from "react"; // useStateをインポート
+import { useState, useEffect } from "react"; // useStateとuseEffectをインポート
 import {
   Box,
   Button,
@@ -30,6 +30,18 @@ interface QuizData {
   };
 }
 
+// 履歴データの型を定義
+interface QuizHistory {
+  id: string; // 一意のID
+  category: string; // カテゴリ
+  categoryLabel: string; // カテゴリの日本語名
+  question: string; // 問題文
+  correctAnswer: string; // 想定解答
+  userAnswer: string; // ユーザーの回答
+  isCorrect: boolean; // 正誤
+  timestamp: number; // タイムスタンプ（UNIXタイム）
+}
+
 // カテゴリの定義
 const CATEGORIES = [
   { value: "history", label: "歴史" },
@@ -40,6 +52,53 @@ const CATEGORIES = [
   { value: "arts", label: "芸術" },
   { value: "general", label: "一般知識" },
 ] as const;
+
+// LocalStorageのキー名
+const HISTORY_STORAGE_KEY = "quiz_app_history";
+
+// LocalStorageから履歴を取得
+const getHistory = (): QuizHistory[] => {
+  if (typeof window === "undefined") return [];
+  try {
+    const stored = localStorage.getItem(HISTORY_STORAGE_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch (error) {
+    console.error("履歴の読み込みに失敗しました:", error);
+    return [];
+  }
+};
+
+// LocalStorageに履歴を保存
+const saveHistory = (history: QuizHistory[]) => {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history));
+  } catch (error) {
+    console.error("履歴の保存に失敗しました:", error);
+  }
+};
+
+// 履歴に新しいエントリを追加
+const addHistoryEntry = (entry: QuizHistory) => {
+  const history = getHistory();
+  // 新しいエントリを先頭に追加（最新が最初）
+  history.unshift(entry);
+  // 最大100件まで保存
+  if (history.length > 100) {
+    history.pop();
+  }
+  saveHistory(history);
+};
+
+// 履歴をクリア
+const clearHistory = () => {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(HISTORY_STORAGE_KEY);
+  } catch (error) {
+    console.error("履歴のクリアに失敗しました:", error);
+  }
+};
 
 export default function Home() {
   // ユーザーが選択したカテゴリを保存するための箱
@@ -56,6 +115,15 @@ export default function Home() {
   const [judgmentResult, setJudgmentResult] = useState<"correct" | "incorrect" | null>(null);
   // 答えを表示するかどうかを管理する箱
   const [showAnswer, setShowAnswer] = useState<boolean>(false);
+  // 履歴を表示するかどうか
+  const [showHistory, setShowHistory] = useState<boolean>(false);
+  // 履歴データ
+  const [history, setHistory] = useState<QuizHistory[]>([]);
+
+  // 初回レンダリング時に履歴を読み込む
+  useEffect(() => {
+    setHistory(getHistory());
+  }, []);
 
   // 回答を正規化する関数（スペース削除、小文字変換、全角→半角）
   const normalizeAnswer = (text: string): string => {
@@ -81,11 +149,25 @@ export default function Home() {
     const normalizedCorrectAnswer = normalizeAnswer(quiz.answer);
 
     // 完全一致で判定
-    if (normalizedUserAnswer === normalizedCorrectAnswer) {
-      setJudgmentResult("correct");
-    } else {
-      setJudgmentResult("incorrect");
-    }
+    const isCorrect = normalizedUserAnswer === normalizedCorrectAnswer;
+    setJudgmentResult(isCorrect ? "correct" : "incorrect");
+
+    // 履歴に保存
+    const categoryLabel = CATEGORIES.find(cat => cat.value === category)?.label || category;
+    const historyEntry: QuizHistory = {
+      id: `${Date.now()}_${Math.random()}`, // 一意のID
+      category: category,
+      categoryLabel: categoryLabel,
+      question: quiz.question,
+      correctAnswer: quiz.answer,
+      userAnswer: userAnswer,
+      isCorrect: isCorrect,
+      timestamp: Date.now(),
+    };
+    addHistoryEntry(historyEntry);
+
+    // 履歴を再読み込み
+    setHistory(getHistory());
 
     // 判定後は自動的に正解例を表示
     setShowAnswer(true);
@@ -268,6 +350,94 @@ export default function Home() {
           </Button>
         </Box>
       </Paper>
+
+      {/* --- 履歴表示ボタン --- */}
+      <Button
+        variant="outlined"
+        onClick={() => setShowHistory(!showHistory)}
+        sx={{ alignSelf: "flex-start", ml: "auto", mr: "auto", maxWidth: "700px" }}
+      >
+        {showHistory ? "履歴を隠す" : `履歴を見る (${history.length}件)`}
+      </Button>
+
+      {/* --- 履歴表示エリア --- */}
+      {showHistory && (
+        <Paper
+          elevation={2}
+          sx={{
+            p: 3,
+            width: "100%",
+            maxWidth: "700px",
+          }}
+        >
+          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+            <Typography variant="h6" component="h2">
+              回答履歴
+            </Typography>
+            {history.length > 0 && (
+              <Button
+                variant="text"
+                color="error"
+                size="small"
+                onClick={() => {
+                  if (confirm("本当に履歴をすべて削除しますか？")) {
+                    clearHistory();
+                    setHistory([]);
+                  }
+                }}
+              >
+                履歴をクリア
+              </Button>
+            )}
+          </Box>
+
+          {history.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              まだ履歴がありません。クイズに挑戦してみましょう！
+            </Typography>
+          ) : (
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              {history.map((entry) => (
+                <Paper
+                  key={entry.id}
+                  variant="outlined"
+                  sx={{
+                    p: 2,
+                    backgroundColor: entry.isCorrect ? "#f1f8f4" : "#fef5f5",
+                    borderColor: entry.isCorrect ? "#4caf50" : "#f44336",
+                  }}
+                >
+                  <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      {new Date(entry.timestamp).toLocaleString("ja-JP")}
+                    </Typography>
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        color: entry.isCorrect ? "success.main" : "error.main",
+                        fontWeight: "bold",
+                      }}
+                    >
+                      {entry.categoryLabel} - {entry.isCorrect ? "正解" : "不正解"}
+                    </Typography>
+                  </Box>
+                  <Typography variant="body2" sx={{ mb: 1, fontWeight: "bold" }}>
+                    問題: {entry.question}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    あなたの回答: {entry.userAnswer}
+                  </Typography>
+                  {!entry.isCorrect && (
+                    <Typography variant="body2" color="success.dark" sx={{ mt: 0.5 }}>
+                      正解: {entry.correctAnswer}
+                    </Typography>
+                  )}
+                </Paper>
+              ))}
+            </Box>
+          )}
+        </Paper>
+      )}
 
       {/* --- エラー表示エリア --- */}
       {error && (
