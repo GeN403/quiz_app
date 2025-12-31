@@ -134,6 +134,7 @@ venv\Scripts\activate  # Windowsの場合
 uvicorn main:app --reload
 ```
 → `http://localhost:8000` でAPIサーバーが起動します
+→ `http://localhost:8000/docs` でAPI仕様書（Swagger UI）を確認できます
 
 ### ターミナル2: フロントエンド起動
 ```bash
@@ -141,6 +142,65 @@ uvicorn main:app --reload
 npx next dev frontend --turbopack
 ```
 → `http://localhost:3000` でWebアプリが起動します
+
+---
+
+## API仕様（バックエンド）
+
+FastAPIは、バックエンドサーバー起動時に自動的にAPI仕様書（Swagger UI）を生成します。
+
+### Swagger UIへのアクセス
+バックエンドサーバー起動後、ブラウザで以下のURLにアクセスしてください：
+
+**`http://localhost:8000/docs`**
+
+ここで、APIエンドポイント、リクエスト/レスポンス形式、パラメータの詳細を確認できます。
+
+### APIエンドポイント一覧
+
+#### POST /generate-quiz
+カテゴリに基づいてクイズを生成するメインエンドポイント
+
+**リクエスト例**:
+```json
+{
+  "category": "history"
+}
+```
+
+**利用可能なカテゴリ**:
+- `history` (歴史)
+- `science` (科学)
+- `literature` (文学)
+- `geography` (地理)
+- `sports` (スポーツ)
+- `arts` (芸術)
+- `general` (一般知識)
+
+**レスポンス例**:
+```json
+{
+  "question": "1582年に起きた本能寺の変で、織田信長を討った武将は誰か？",
+  "answer": "明智光秀",
+  "Alternative Solutions/Correctness Judgment Criteria": "「明智光秀」が正解。「光秀」のみでも可。",
+  "explanation": "本能寺の変は、1582年6月2日に京都の本能寺で起きた...",
+  "source": {
+    "title": "本能寺の変 - Wikipedia",
+    "url": "https://ja.wikipedia.org/wiki/本能寺の変"
+  }
+}
+```
+
+**エラーレスポンス例**:
+- **401 Unauthorized**: Gemini APIキーが無効
+- **429 Too Many Requests**: APIリクエスト制限超過
+- **503 Service Unavailable**: Gemini APIサービス障害
+
+### バックエンドの責務
+FastAPIバックエンドは以下の責務を担います：
+1. **クイズ生成**: カテゴリに基づいてGemini APIを呼び出し、競技クイズレベルの問題を生成
+2. **エラーハンドリング**: Gemini API関連のエラーを適切に検出し、ユーザーフレンドリーなエラーメッセージを返す
+3. **CORS設定**: フロントエンド（localhost:3000）からのリクエストを許可
 
 ---
 
