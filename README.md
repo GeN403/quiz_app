@@ -11,7 +11,24 @@ WebページのURLを入力すると、AI（Gemini API）がその内容を基�
 ## 必要な環境
 - Python 3.12以上
 - Node.js 20以上
-- Gemini APIキー（[こちら](https://aistudio.google.com/app/apikey)から取得）`
+- Gemini APIキー（[こちら](https://aistudio.google.com/app/apikey)から取得）
+
+## 環境変数一覧
+
+### バックエンド（backend/.env）- 必須
+| 変数名 | 説明 | 必須 | デフォルト値 | 取得先 |
+|--------|------|------|--------------|--------|
+| `GEMINI_API_KEY` | Google Gemini APIキー | ✅ | なし | [Google AI Studio](https://aistudio.google.com/app/apikey) |
+
+### フロントエンド（frontend/.env.local）- 任意
+| 変数名 | 説明 | 必須 | デフォルト値 | 備考 |
+|--------|------|------|--------------|------|
+| `NEXT_PUBLIC_API_URL` | FastAPIバックエンドのURL | ❌ | `http://localhost:8000` | 本番環境では変更が必要 |
+
+**重要な注意事項**:
+- `.env` ファイルは `.gitignore` で除外されており、**Gitにコミットされません**
+- APIキーなどの機密情報は絶対にGitHubにプッシュしないでください
+- チーム開発時は `.env.example` を共有し、各自で `.env` を作成してください`
 
 
 ## リポジトリ構造
@@ -44,11 +61,42 @@ git clone https://github.com/GeN403/quiz_app.git
 cd quiz_app
 ```
 
-### 2. バックエンドのセットアップ
+### 2. 環境変数の設定
 
-#### 2-1. 仮想環境の作成とライブラリインストール
+#### 2-1. バックエンドの環境変数設定（必須）
 ```bash
 cd backend
+cp .env.example .env
+```
+
+`.env`ファイルを開き、Gemini APIキーを設定してください：
+```env
+# backend/.env
+GEMINI_API_KEY=あなたのAPIキーをここに貼り付け
+```
+
+**APIキーの取得方法**:
+1. [Google AI Studio](https://aistudio.google.com/app/apikey) にアクセス
+2. 「Create API Key」をクリック
+3. 生成されたAPIキーをコピーして上記の`.env`ファイルに貼り付け
+
+#### 2-2. フロントエンドの環境変数設定（任意）
+```bash
+cd ../frontend  # または cd ..してから cd frontend
+cp .env.example .env.local
+```
+
+デフォルト設定で動作しますが、本番環境や別のポートでバックエンドを起動する場合は変更してください：
+```env
+# frontend/.env.local
+NEXT_PUBLIC_API_URL=http://localhost:8000  # バックエンドのURL
+```
+
+### 3. バックエンドのセットアップ
+
+#### 3-1. 仮想環境の作成とライブラリインストール
+```bash
+cd backend  # まだbackend/にいない場合
 python -m venv venv
 ```
 
@@ -66,22 +114,11 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-#### 2-2. 環境変数の設定
-```bash
-# .env.exampleをコピーして.envを作成
-cp .env.example .env
-```
-
-`.env`ファイルを開き、Gemini APIキーを設定してください：
-```
-GEMINI_API_KEY=あなたのAPIキーをここに貼り付け
-```
-
-### 3. フロントエンドのセットアップ
+### 4. フロントエンドのセットアップ
 
 ルートディレクトリ（quiz_app/）に戻り、依存関係をインストール：
 ```bash
-cd ..
+cd ..  # quiz_app/ に戻る
 npm install
 ```
 
@@ -190,8 +227,30 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
+### ❌ 環境変数が設定されていない
+**症状**: バックエンド起動時に「GEMINI_API_KEY is not set」などのエラーが表示される
+
+**解決方法**:
+1. `backend/.env` ファイルが存在するか確認
+   ```bash
+   ls backend/.env  # ファイルが存在するか確認
+   ```
+2. 存在しない場合は `.env.example` からコピー
+   ```bash
+   cd backend
+   cp .env.example .env
+   ```
+3. `.env` ファイルを開き、APIキーを設定
+   ```env
+   GEMINI_API_KEY=your_actual_api_key_here
+   ```
+4. APIキーが正しく設定されているか確認
+   ```bash
+   cat backend/.env  # 内容を確認（Windowsの場合: type backend\.env）
+   ```
+
 ### バックエンドが起動しない
-- `GEMINI_API_KEY` が正しく設定されているか確認
+- `GEMINI_API_KEY` が正しく設定されているか確認（上記参照）
 - `backend/.env` ファイルが存在するか確認
 - 仮想環境が有効化されているか確認（`(venv)` がターミナルに表示される）
 - **作業ディレクトリが `backend/` であることを確認**

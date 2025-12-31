@@ -44,7 +44,8 @@ export default function Home() {
     setIsLoading(true); // ローディング開始
     setShowAnswer(false); // 答えを隠す
     try {
-      const res = await fetch("http://localhost:8000/generate-quiz", { // 作成したAPIを呼び出す
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const res = await fetch(`${apiUrl}/generate-quiz`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
