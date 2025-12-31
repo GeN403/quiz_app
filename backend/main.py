@@ -6,6 +6,9 @@ import google.generativeai as genai
 from google.api_core import exceptions as google_exceptions
 from dotenv import load_dotenv
 import json
+import re
+from urllib.parse import urlparse
+from pathlib import Path
 
 # FastAPI関連のインポート
 from fastapi import FastAPI, HTTPException
@@ -138,6 +141,14 @@ CONSTRAINT_RULES = """
 ・漢字検定2級程度の語彙には後ろから()でルビを追加してください。
 ・最初は広い情報から入り、徐々に狭い情報に絞ってください。
 ・前半に知名度が低い情報、後半に知名度が高い情報を配置してください。
+
+【参照元制限の厳守】
+・参照元として使用できるのは以下のサイトのみです：
+  1. コトバンク（https://kotobank.jp）
+  2. 公式サイト（*.go.jp、*.ac.jp、企業の公式ドメイン）
+・ブログ、まとめサイト、SNS、Q&Aサイト（例：知恵袋、Quora等）は参照禁止です。
+・"source"の"url"には、必ず上記の許可された参照元のURLを1つ以上含めてください。
+・URLは絶対に捏造しないでください。適切な参照URLを提示できない場合は、"url"フィールドに「参照URLを提示できません」と記載してください。
 """
 
 # --- ① AIへの最終的な指示プロンプト（カテゴリベース） ---
@@ -160,12 +171,90 @@ prompt_template = f"""
 
 # 追加の指示
 ・"source"の"title"には、クイズの題材となった具体的なトピック名を設定してください（例: 「フランス革命」「光合成」など）
-・"source"の"url"には、そのトピックに関連する信頼できる参考URLを設定してください（Wikipediaなど）
+・"source"の"url"には、そのトピックに関連する信頼できる参考URLを設定してください
+  - 必ずコトバンク（https://kotobank.jp）または公式サイト（*.go.jp、*.ac.jp）のURLを使用してください
+  - ブログ、まとめサイト、SNS、Q&Aサイトは使用禁止です
+  - 適切なURLが見つからない場合は、「参照URLを提示できません」と記載してください
 ・問題は{{category_name}}のカテゴリに関連する、競技クイズとして適切な難易度のものを作成してください
 """
 
 # ----------------------------------------------------
 # ↑↑↑ プロンプトとルールの定義ここまで ↑↑↑
+# ----------------------------------------------------
+
+# ----------------------------------------------------
+# URL検証関連の関数
+# ----------------------------------------------------
+
+def load_allowed_domains():
+    """allowed_domains.json から追加許可ドメインを読み込む"""
+    config_path = Path(__file__).parent / "config" / "allowed_domains.json"
+    try:
+        if config_path.exists():
+            with open(config_path, "r", encoding="utf-8") as f:
+                config = json.load(f)
+                return config.get("additional_domains", [])
+        else:
+            print(f"[WARNING] {config_path} が見つかりません。追加ドメインなしで動作します。")
+            return []
+    except Exception as e:
+        print(f"[ERROR] allowed_domains.json の読み込みに失敗: {e}")
+        return []
+
+def extract_urls_from_text(text: str):
+    """テキストからURLを抽出する（正規表現使用）"""
+    # http:// または https:// で始まるURLを抽出
+    url_pattern = r'https?://[^\s\"\'\)\]\}]+'
+    urls = re.findall(url_pattern, text)
+    return urls
+
+def is_domain_allowed(domain: str, additional_domains: list) -> bool:
+    """ドメインが許可リストに含まれるかチェック"""
+    domain_lower = domain.lower()
+
+    # 基本許可ドメイン
+    if domain_lower == "kotobank.jp" or domain_lower.endswith(".kotobank.jp"):
+        return True
+    if domain_lower.endswith(".go.jp"):
+        return True
+    if domain_lower.endswith(".ac.jp"):
+        return True
+
+    # 追加許可ドメイン
+    for allowed in additional_domains:
+        allowed_lower = allowed.lower()
+        if domain_lower == allowed_lower or domain_lower.endswith("." + allowed_lower):
+            return True
+
+    return False
+
+def validate_urls_in_response(response_text: str):
+    """
+    レスポンステキストに含まれるURLを検証する
+    許可外URLがあれば、それらをリストで返す
+    """
+    additional_domains = load_allowed_domains()
+    urls = extract_urls_from_text(response_text)
+
+    if not urls:
+        # URLが1つも見つからない場合も違反とする
+        print("[WARNING] 生成結果にURLが含まれていません")
+        return None, ["URLが含まれていません"]
+
+    invalid_urls = []
+    for url in urls:
+        try:
+            parsed = urlparse(url)
+            domain = parsed.netloc
+            if not is_domain_allowed(domain, additional_domains):
+                invalid_urls.append(url)
+                print(f"[VIOLATION] 許可外URL検出: {url} (domain: {domain})")
+        except Exception as e:
+            print(f"[ERROR] URL解析エラー ({url}): {e}")
+            invalid_urls.append(url)
+
+    return urls, invalid_urls
+
 # ----------------------------------------------------
 
 def get_web_info(url: str):
@@ -294,8 +383,27 @@ async def generate_quiz(request: QuizRequest):
 
         print("[OK] 最終版が完成しました！(クリーンアップ後)")
 
-        # JSON文字列をPythonの辞書に変換して返す
+        # JSON文字列をPythonの辞書に変換
         final_json = json.loads(final_text)
+
+        # --- URL検証フェーズ ---
+        print("\n--- [URL検証] 参照元制限チェック ---")
+        all_urls, invalid_urls = validate_urls_in_response(final_text)
+
+        if invalid_urls:
+            # 許可外URLが含まれている場合はエラー
+            print(f"[ERROR] 参照元制約違反: {len(invalid_urls)}件の許可外URLを検出")
+            for url in invalid_urls:
+                print(f"  - {url}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"SOURCE_RESTRICTION_VIOLATION: 参照元が制限（コトバンク/公式サイト）に一致しません。検出された許可外URL: {', '.join(invalid_urls[:3])}"
+            )
+
+        print(f"[OK] URL検証完了: {len(all_urls)}件のURLがすべて許可リストに含まれています")
+        for url in all_urls:
+            print(f"  ✓ {url}")
+
         return final_json
 
     # エラーキャッチをより具体的にする

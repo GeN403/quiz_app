@@ -268,6 +268,11 @@ export default function Home() {
             "AIの応答形式が不正です。\n" +
             "もう一度お試しください。"
           );
+        } else if (errorDetail.includes("SOURCE_RESTRICTION_VIOLATION")) {
+          throw new Error(
+            "参照元が制限（コトバンク/公式サイト）に一致しないため、生成結果を表示できません。\n" +
+            "別のカテゴリで再試行してください。"
+          );
         } else if (res.status >= 500) {
           throw new Error(
             "バックエンドサーバーでエラーが発生しました。\n" +
@@ -275,7 +280,7 @@ export default function Home() {
           );
         } else if (res.status === 400) {
           throw new Error(
-            "入力されたURLが無効です。正しいURLを入力してください。"
+            "リクエストが無効です。もう一度お試しください。"
           );
         } else {
           throw new Error(`APIエラー: ${res.status} ${res.statusText}`);
