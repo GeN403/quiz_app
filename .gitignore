@@ -65,3 +65,6 @@ backend/project/faiss_index/
 # ダウンロードされる埋め込みモデル
 # (HuggingFaceEmbeddingsなどが自動ダウンロードするキャッシュ)
 backend/project/models/
+
+/.claude/
+/backend/project/
