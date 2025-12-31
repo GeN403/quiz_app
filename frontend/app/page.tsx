@@ -12,6 +12,10 @@ import {
   CircularProgress, // ローディングスピナー用
   Collapse, // アコーディオン用
   Alert, // エラー表示用
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from "@mui/material";
 
 // AIから返ってくるJSONの型を定義
@@ -26,9 +30,20 @@ interface QuizData {
   };
 }
 
+// カテゴリの定義
+const CATEGORIES = [
+  { value: "history", label: "歴史" },
+  { value: "science", label: "科学" },
+  { value: "literature", label: "文学" },
+  { value: "geography", label: "地理" },
+  { value: "sports", label: "スポーツ" },
+  { value: "arts", label: "芸術" },
+  { value: "general", label: "一般知識" },
+] as const;
+
 export default function Home() {
-  // ユーザーが入力したURLを保存するための箱
-  const [url, setUrl] = useState<string>("");
+  // ユーザーが選択したカテゴリを保存するための箱
+  const [category, setCategory] = useState<string>("");
   // クイズデータ（オブジェクト）を保存する箱
   const [quiz, setQuiz] = useState<QuizData | null>(null);
   // ローディング状態を管理する箱
@@ -39,6 +54,12 @@ export default function Home() {
   const [showAnswer, setShowAnswer] = useState<boolean>(false);
 
   const handleGenerate = async () => {
+    // カテゴリ未選択の場合はエラー表示
+    if (!category) {
+      setError("カテゴリを選択してください。");
+      return;
+    }
+
     setQuiz(null); // 前のクイズをリセット
     setError(""); // 前のエラーをリセット
     setIsLoading(true); // ローディング開始
@@ -55,7 +76,7 @@ export default function Home() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ url: url }), // 入力されたURLを送信
+        body: JSON.stringify({ category: category }), // 選択されたカテゴリを送信
         signal: controller.signal, // タイムアウト用
       });
 
@@ -164,34 +185,48 @@ export default function Home() {
         クイズ自動生成プロトタイプ
       </Typography>
 
-      {/* --- 入力エリア --- */}
+      {/* --- カテゴリ選択エリア --- */}
       <Paper
         sx={{
-          p: 2,
+          p: 3,
           width: "100%",
           maxWidth: "700px",
           display: "flex",
+          flexDirection: "column",
           gap: 2,
         }}
       >
-        <TextField
-          id="url-input"
-          label="クイズ生成元のURL"
-          variant="outlined"
-          fullWidth
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          disabled={isLoading} // 生成中は無効化
-        />
-        <Button
-          variant="contained"
-          size="large"
-          onClick={handleGenerate}
-          disabled={isLoading} // 生成中は無効化
-          sx={{ whiteSpace: "nowrap" }}
-        >
-          {isLoading ? <CircularProgress size={24} /> : "生成"}
-        </Button>
+        <Typography variant="h6" component="h2">
+          カテゴリを選択してクイズを生成
+        </Typography>
+        <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
+          <FormControl fullWidth>
+            <InputLabel id="category-select-label">カテゴリ</InputLabel>
+            <Select
+              labelId="category-select-label"
+              id="category-select"
+              value={category}
+              label="カテゴリ"
+              onChange={(e) => setCategory(e.target.value)}
+              disabled={isLoading}
+            >
+              {CATEGORIES.map((cat) => (
+                <MenuItem key={cat.value} value={cat.value}>
+                  {cat.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <Button
+            variant="contained"
+            size="large"
+            onClick={handleGenerate}
+            disabled={isLoading || !category}
+            sx={{ whiteSpace: "nowrap", minWidth: "120px" }}
+          >
+            {isLoading ? <CircularProgress size={24} /> : "生成"}
+          </Button>
+        </Box>
       </Paper>
 
       {/* --- エラー表示エリア --- */}
@@ -230,33 +265,50 @@ export default function Home() {
             "& > *": { mb: 2 }, // 各要素の間にマージン
           }}
         >
-          {/* 質問文 */}
-          <Typography variant="h5" component="h2" sx={{ fontWeight: "bold" }}>
-            問題
+          {/* 問題文 */}
+          <Typography variant="h5" component="h2" sx={{ fontWeight: "bold", color: "primary.main" }}>
+            問題文
           </Typography>
-          <Typography
-            variant="body1"
-            sx={{ fontSize: "1.2rem", whiteSpace: "pre-wrap", lineHeight: 1.8 }}
+          <Paper
+            variant="outlined"
+            sx={{
+              p: 2,
+              backgroundColor: "#f9f9f9",
+            }}
           >
-            {quiz.question}
-          </Typography>
+            <Typography
+              variant="body1"
+              sx={{ fontSize: "1.2rem", whiteSpace: "pre-wrap", lineHeight: 1.8 }}
+            >
+              {quiz.question}
+            </Typography>
+          </Paper>
 
           <Button
             variant="outlined"
             onClick={() => setShowAnswer(!showAnswer)}
+            sx={{ mt: 1 }}
           >
-            {showAnswer ? "答えを隠す" : "答えと解説を見る"}
+            {showAnswer ? "答えを隠す" : "想定解答と解説を見る"}
           </Button>
 
           {/* 答えと解説 (アコーディオンで表示) */}
           <Collapse in={showAnswer}>
-            {/* 正解 */}
-            <Typography variant="h6" component="h3" sx={{ mt: 2 }}>
-              正解
+            {/* 想定解答 */}
+            <Typography variant="h6" component="h3" sx={{ mt: 2, fontWeight: "bold" }}>
+              想定解答
             </Typography>
-            <Typography variant="body1" sx={{ fontSize: "1.1rem", color: "green", fontWeight: "bold" }}>
-              {quiz.answer}
-            </Typography>
+            <Paper
+              variant="outlined"
+              sx={{
+                p: 2,
+                backgroundColor: "#e8f5e9",
+              }}
+            >
+              <Typography variant="body1" sx={{ fontSize: "1.1rem", color: "success.dark", fontWeight: "bold" }}>
+                {quiz.answer}
+              </Typography>
+            </Paper>
 
             {/* 別解 */}
             <Typography variant="h6" component="h3" sx={{ mt: 2 }}>

@@ -47,7 +47,7 @@ app.add_middleware(
 
 # リクエストボディの型を定義
 class QuizRequest(BaseModel):
-    url: str
+    category: str
 
 # # 使用するモデルを選択（実際に利用可能なモデル名にしてください）
 # model = genai.GenerativeModel('gemini-2.5-flash')
@@ -110,6 +110,17 @@ class QuizRequest(BaseModel):
 # 使用するモデルを選択
 model = genai.GenerativeModel('gemini-2.0-flash-lite')
 
+# カテゴリの日本語名マッピング
+CATEGORY_NAMES = {
+    "history": "歴史",
+    "science": "科学",
+    "literature": "文学",
+    "geography": "地理",
+    "sports": "スポーツ",
+    "arts": "芸術",
+    "general": "一般知識",
+}
+
 # 制約条件を独立した変数として定義
 CONSTRAINT_RULES = """
 ・必ず「問題文」「正解」「別解/正誤判定基準」「解説」「出典」の要素を含めてください。
@@ -129,13 +140,13 @@ CONSTRAINT_RULES = """
 ・前半に知名度が低い情報、後半に知名度が高い情報を配置してください。
 """
 
-# --- ① AIへの最終的な指示プロンプト（これ一本にします） ---
+# --- ① AIへの最終的な指示プロンプト（カテゴリベース） ---
 prompt_template = f"""
 # 役割
 あなたはプロのクイズ作家であり、JSONの専門家です。
 
 # タスク
-以下の「文章」と「出典情報」を基にして、競技クイズで使えるような本格的なクイズを1問作成してください。
+「{{category_name}}」のカテゴリで、競技クイズで使えるような本格的なクイズを1問作成してください。
 
 # 制約条件
 {CONSTRAINT_RULES}
@@ -144,12 +155,13 @@ prompt_template = f"""
 ・あなたの応答は、解説や挨拶を一切含んではいけません。
 ・あなたの応答は、**「制約条件」をすべて満たしたJSONオブジェクトそのもの**である必要があります。
 
-# 出典情報
-・タイトル: {{source_title}}
-・URL: {{source_url}}
+# カテゴリ
+{{category_name}}
 
-# 文章
-{{source_text}}
+# 追加の指示
+・"source"の"title"には、クイズの題材となった具体的なトピック名を設定してください（例: 「フランス革命」「光合成」など）
+・"source"の"url"には、そのトピックに関連する信頼できる参考URLを設定してください（Wikipediaなど）
+・問題は{{category_name}}のカテゴリに関連する、競技クイズとして適切な難易度のものを作成してください
 """
 
 # ----------------------------------------------------
@@ -182,28 +194,25 @@ def get_web_info(url: str):
 @app.post("/generate-quiz")
 async def generate_quiz(request: QuizRequest):
     """
-    URLを受け取り、スクレイピングとGemini API呼び出しを行ってクイズを生成する
+    カテゴリを受け取り、Gemini API呼び出しを行ってクイズを生成する
     """
-    print(f"リクエスト受信: URL = {request.url}")
-    
-    # 1. URLから本文とタイトルを取得
-    source_text, source_title = get_web_info(request.url)
-    if not source_text:
-        raise HTTPException(status_code=400, detail="URLからコンテンツを取得できませんでした。")
+    print(f"リクエスト受信: category = {request.category}")
 
-    # テキストが長すぎるとタイムアウトするため、先頭8000文字程度に制限する
-    MAX_LENGTH = 8000
-    if len(source_text) > MAX_LENGTH:
-        print(f"[WARNING] テキストが長すぎたため、{MAX_LENGTH}文字に短縮します。")
-        source_text = source_text[:MAX_LENGTH]
+    # 1. カテゴリの検証
+    if request.category not in CATEGORY_NAMES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"無効なカテゴリです。有効なカテゴリ: {', '.join(CATEGORY_NAMES.keys())}"
+        )
+
+    category_name = CATEGORY_NAMES[request.category]
+    print(f"[INFO] カテゴリ: {category_name}")
 
     try:
         # --- AI呼び出し（1回だけ） ---
         print("\n--- [1] 生成フェーズ ---")
         full_prompt = prompt_template.format(
-            source_title=source_title,
-            source_url=request.url,
-            source_text=source_text
+            category_name=category_name
         )
         print("[AI] クイズを生成中...")
 
