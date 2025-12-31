@@ -204,6 +204,123 @@ FastAPIバックエンドは以下の責務を担います：
 
 ---
 
+## API動作確認（PowerShell / Windows環境）
+
+Windows PowerShell環境でバックエンドAPIを直接テストする方法を説明します。
+
+### 前提条件
+- バックエンドが起動していること（`http://localhost:8000`）
+- PowerShellの`curl`エイリアスは`Invoke-WebRequest`のため、`curl.exe`または`Invoke-RestMethod`を使用
+
+### 文字化け対策（必要な場合）
+
+#### main.pyの日本語が崩れる場合
+```powershell
+Get-Content backend/main.py -Encoding UTF8 | Select-String "validate_sources"
+```
+
+#### PowerShellの出力が文字化けする場合
+```powershell
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+```
+
+### Invoke-RestMethod を使ったテスト
+
+#### 正常系: カテゴリモード
+```powershell
+$body = @{
+    category = "history"
+    source_type = "category"
+    question_count = 1
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://localhost:8000/generate-quiz" `
+    -Method POST `
+    -ContentType "application/json" `
+    -Body $body
+```
+
+**期待される結果**:
+- HTTPステータス: 200 OK
+- source.url: `https://kotobank.jp/...` または `"参照URLを提示できません"`
+- source.quote: 任意（あってもなくてもOK）
+
+#### 正常系: URLモード
+```powershell
+$body = @{
+    category = "history"
+    source_type = "url"
+    source_value = "https://kotobank.jp/word/%E6%A1%9C%E7%94%B0%E9%96%80%E5%A4%96%E3%81%AE%E5%A4%89-68811"
+    question_count = 1
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://localhost:8000/generate-quiz" `
+    -Method POST `
+    -ContentType "application/json" `
+    -Body $body
+```
+
+**期待される結果**:
+- HTTPステータス: 200 OK
+- source.url: 入力URLと一致
+- source.quote: **必須**（30文字以上）
+
+### curl.exe を使ったテスト
+
+#### 正常系: カテゴリモード
+```powershell
+curl.exe -X POST http://localhost:8000/generate-quiz `
+    -H "Content-Type: application/json" `
+    -d '{\"category\": \"history\", \"source_type\": \"category\", \"question_count\": 1}'
+```
+
+#### 正常系: URLモード
+```powershell
+curl.exe -X POST http://localhost:8000/generate-quiz `
+    -H "Content-Type: application/json" `
+    -d '{\"category\": \"history\", \"source_type\": \"url\", \"source_value\": \"https://kotobank.jp/word/%E6%A1%9C%E7%94%B0%E9%96%80%E5%A4%96%E3%81%AE%E5%A4%89-68811\", \"question_count\": 1}'
+```
+
+### 検証条件まとめ
+
+| モード | source.url | source.quote | HTTPステータス |
+|--------|-----------|--------------|---------------|
+| カテゴリ | `https://kotobank.jp/...`（許可ドメイン） | 任意 | 200 OK |
+| カテゴリ | `"参照URLを提示できません"` | 任意 | 200 OK（URL検証スキップ） |
+| カテゴリ | `https://wikipedia.org/...`（許可外） | - | 400 Bad Request |
+| URL | 入力URLと一致 | **必須**（30文字以上） | 200 OK |
+| URL | 入力URLと不一致 | - | 400 Bad Request |
+| URL | - | 欠落または30文字未満 | 400 Bad Request |
+
+### 手動コード確認コマンド
+
+#### validate_sources が使用されているか確認
+```powershell
+Select-String -Path backend/main.py -Pattern "validate_sources" -SimpleMatch
+```
+
+**期待される出力**: 複数行（関数定義と呼び出し箇所）
+
+#### validate_urls_in_response が generate_quiz から削除されたか確認
+```powershell
+# generate_quiz 関数内でのvalidate_urls_in_responseの呼び出しを検索
+Get-Content backend/main.py -Encoding UTF8 | Select-String -Pattern "validate_urls_in_response\(final_text\)" -SimpleMatch
+```
+
+**期待される出力**: 何も表示されない（削除されているため）
+
+### 自動検証スクリプト
+
+詳細は `backend/scripts/validate_api.ps1` を参照してください。
+
+```powershell
+# 実行方法
+cd backend
+.\scripts\validate_api.ps1
+```
+
+---
+
 ## 動作確認手順
 
 ブラウザで `http://localhost:3000` を開き、以下の手順で動作を確認してください：
