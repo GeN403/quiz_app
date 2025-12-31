@@ -62,10 +62,57 @@ export default function Home() {
       clearTimeout(timeoutId); // タイムアウトをクリア
 
       if (!res.ok) {
-        // HTTPステータスコードに応じたエラーメッセージ
-        if (res.status >= 500) {
+        // レスポンスボディからエラーメッセージを取得
+        let errorDetail = "";
+        try {
+          const errorData = await res.json();
+          errorDetail = errorData.detail || "";
+        } catch {
+          // JSON解析に失敗した場合は空文字列のまま
+        }
+
+        // HTTPステータスコードとエラーメッセージに応じた処理
+        if (res.status === 401 || errorDetail.includes("GEMINI_API_KEY_INVALID")) {
           throw new Error(
-            "バックエンドサーバーでエラーが発生しました。時間をおいて再度お試しください。"
+            "Gemini APIキーが無効です。\n" +
+            "管理者にお問い合わせください。\n\n" +
+            "開発者向け: backend/.envファイルのGEMINI_API_KEYを確認してください。"
+          );
+        } else if (res.status === 403 || errorDetail.includes("GEMINI_API_KEY_PERMISSION_DENIED")) {
+          throw new Error(
+            "Gemini APIキーの権限が不足しています。\n" +
+            "管理者にお問い合わせください。"
+          );
+        } else if (res.status === 429 || errorDetail.includes("GEMINI_RATE_LIMIT")) {
+          throw new Error(
+            "Gemini APIのリクエスト制限に達しました。\n" +
+            "しばらく待ってから再度お試しください。"
+          );
+        } else if (res.status === 503 || errorDetail.includes("GEMINI_SERVICE_UNAVAILABLE")) {
+          throw new Error(
+            "Gemini AIサービスが一時的に利用できません。\n" +
+            "しばらく待ってから再度お試しください。"
+          );
+        } else if (res.status === 504 || errorDetail.includes("GEMINI_TIMEOUT")) {
+          throw new Error(
+            "Gemini APIへのリクエストがタイムアウトしました。\n" +
+            "もう一度お試しください。"
+          );
+        } else if (errorDetail.includes("GEMINI_API_KEY_NOT_SET")) {
+          throw new Error(
+            "Gemini APIキーが設定されていません。\n" +
+            "管理者にお問い合わせください。\n\n" +
+            "開発者向け: backend/.envファイルにGEMINI_API_KEYを設定してください。"
+          );
+        } else if (errorDetail.includes("AI_INVALID_JSON")) {
+          throw new Error(
+            "AIの応答形式が不正です。\n" +
+            "もう一度お試しください。"
+          );
+        } else if (res.status >= 500) {
+          throw new Error(
+            "バックエンドサーバーでエラーが発生しました。\n" +
+            "時間をおいて再度お試しください。"
           );
         } else if (res.status === 400) {
           throw new Error(

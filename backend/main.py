@@ -3,6 +3,7 @@ import os
 import requests
 from bs4 import BeautifulSoup
 import google.generativeai as genai
+from google.api_core import exceptions as google_exceptions
 from dotenv import load_dotenv
 import json
 
@@ -15,7 +16,15 @@ from pydantic import BaseModel
 load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
 
-# APIキーを設定
+# APIキーの存在チェックと設定
+if not api_key:
+    print("[WARNING] GEMINI_API_KEY が設定されていません。")
+    print("[WARNING] バックエンドは起動しますが、クイズ生成は失敗します。")
+    print("[WARNING] backend/.env ファイルに GEMINI_API_KEY を設定してください。")
+else:
+    print("[OK] GEMINI_API_KEY が正しく設定されています。")
+
+# APIキーを設定（Noneでも設定して、実際のAPI呼び出し時にエラーを捕捉）
 genai.configure(api_key=api_key)
 
 # FastAPIアプリケーションの初期化
@@ -197,8 +206,68 @@ async def generate_quiz(request: QuizRequest):
             source_text=source_text
         )
         print("[AI] クイズを生成中...")
-        response = model.generate_content(full_prompt)
-        
+
+        # Gemini API呼び出し（エラーハンドリング強化）
+        try:
+            response = model.generate_content(full_prompt)
+        except google_exceptions.Unauthenticated as e:
+            print(f"[ERROR] Gemini API認証エラー: {e}")
+            raise HTTPException(
+                status_code=401,
+                detail="GEMINI_API_KEY_INVALID: APIキーが無効です。backend/.envファイルのGEMINI_API_KEYを確認してください。"
+            )
+        except google_exceptions.PermissionDenied as e:
+            print(f"[ERROR] Gemini API権限エラー: {e}")
+            raise HTTPException(
+                status_code=403,
+                detail="GEMINI_API_KEY_PERMISSION_DENIED: APIキーに必要な権限がありません。APIキーの設定を確認してください。"
+            )
+        except (google_exceptions.ResourceExhausted, google_exceptions.TooManyRequests) as e:
+            print(f"[ERROR] Gemini APIレート制限: {e}")
+            raise HTTPException(
+                status_code=429,
+                detail="GEMINI_RATE_LIMIT: Gemini APIのレート制限に達しました。しばらく待ってから再度お試しください。"
+            )
+        except (google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError) as e:
+            print(f"[ERROR] Gemini APIサービスエラー: {e}")
+            raise HTTPException(
+                status_code=503,
+                detail="GEMINI_SERVICE_UNAVAILABLE: Gemini APIが一時的に利用できません。しばらく待ってから再度お試しください。"
+            )
+        except google_exceptions.DeadlineExceeded as e:
+            print(f"[ERROR] Gemini APIタイムアウト: {e}")
+            raise HTTPException(
+                status_code=504,
+                detail="GEMINI_TIMEOUT: Gemini APIへのリクエストがタイムアウトしました。もう一度お試しください。"
+            )
+        except google_exceptions.InvalidArgument as e:
+            print(f"[ERROR] Gemini API無効な引数: {e}")
+            raise HTTPException(
+                status_code=400,
+                detail="GEMINI_INVALID_REQUEST: リクエストが不正です。URLの内容が長すぎるか、不正な形式の可能性があります。"
+            )
+        except ValueError as e:
+            # APIキーがNoneの場合など、genai.configure後に発生する可能性があるエラー
+            error_str = str(e).lower()
+            if "api" in error_str and "key" in error_str:
+                print(f"[ERROR] APIキー関連のValueError: {e}")
+                raise HTTPException(
+                    status_code=500,
+                    detail="GEMINI_API_KEY_NOT_SET: GEMINI_API_KEYが設定されていません。backend/.envファイルにAPIキーを設定してください。"
+                )
+            else:
+                print(f"[ERROR] ValueError: {e}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"GEMINI_VALUE_ERROR: Gemini API呼び出し中にエラーが発生しました: {str(e)}"
+                )
+        except Exception as e:
+            print(f"[ERROR] Gemini API予期しないエラー: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"GEMINI_UNKNOWN_ERROR: Gemini API呼び出し中に予期しないエラーが発生しました: {str(e)}"
+            )
+
         # AIの生の応答をクリーンアップ
         final_text = response.text.strip()
 
@@ -215,19 +284,28 @@ async def generate_quiz(request: QuizRequest):
             final_text = final_text[:-3].strip()
 
         print("[OK] 最終版が完成しました！(クリーンアップ後)")
-        
+
         # JSON文字列をPythonの辞書に変換して返す
         final_json = json.loads(final_text)
         return final_json
-        
+
     # エラーキャッチをより具体的にする
     except json.JSONDecodeError as e:
         print(f"[ERROR] JSONデコードエラー: {e}")
         print("--- 失敗したテキスト (上記ログ参照) ---")
-        raise HTTPException(status_code=500, detail=f"AIが有効なJSONを返しませんでした。RAW: {final_text}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"AI_INVALID_JSON: AIが有効なJSONを返しませんでした。もう一度お試しください。"
+        )
+    except HTTPException:
+        # HTTPExceptionはそのまま再スロー（上記で投げたエラー）
+        raise
     except Exception as e:
         print(f"[ERROR] API処理中にエラーが発生しました: {e}")
-        raise HTTPException(status_code=500, detail="AIによるクイズ生成中にエラーが発生しました。")
+        raise HTTPException(
+            status_code=500,
+            detail=f"QUIZ_GENERATION_ERROR: クイズ生成中にエラーが発生しました: {str(e)}"
+        )
 
 # --- メインの処理 ---
 # 1. URLから本文とタイトルを取得
