@@ -50,8 +50,46 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   // エラーメッセージを保存する箱
   const [error, setError] = useState<string>("");
+  // ユーザーの回答を保存する箱
+  const [userAnswer, setUserAnswer] = useState<string>("");
+  // 判定結果を保存する箱（null: 未判定, "correct": 正解, "incorrect": 不正解）
+  const [judgmentResult, setJudgmentResult] = useState<"correct" | "incorrect" | null>(null);
   // 答えを表示するかどうかを管理する箱
   const [showAnswer, setShowAnswer] = useState<boolean>(false);
+
+  // 回答を正規化する関数（スペース削除、小文字変換、全角→半角）
+  const normalizeAnswer = (text: string): string => {
+    return text
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "") // スペース削除
+      .replace(/[Ａ-Ｚａ-ｚ０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xfee0)); // 全角→半角
+  };
+
+  // 回答の正誤判定
+  const handleSubmitAnswer = () => {
+    if (!quiz) return;
+    if (!userAnswer.trim()) {
+      setError("回答を入力してください。");
+      return;
+    }
+
+    setError(""); // エラーをクリア
+
+    // 正規化した回答と正解を比較
+    const normalizedUserAnswer = normalizeAnswer(userAnswer);
+    const normalizedCorrectAnswer = normalizeAnswer(quiz.answer);
+
+    // 完全一致で判定
+    if (normalizedUserAnswer === normalizedCorrectAnswer) {
+      setJudgmentResult("correct");
+    } else {
+      setJudgmentResult("incorrect");
+    }
+
+    // 判定後は自動的に正解例を表示
+    setShowAnswer(true);
+  };
 
   const handleGenerate = async () => {
     // カテゴリ未選択の場合はエラー表示
@@ -64,6 +102,8 @@ export default function Home() {
     setError(""); // 前のエラーをリセット
     setIsLoading(true); // ローディング開始
     setShowAnswer(false); // 答えを隠す
+    setUserAnswer(""); // ユーザーの回答をリセット
+    setJudgmentResult(null); // 判定結果をリセット
 
     // タイムアウト設定（30秒）
     const controller = new AbortController();
@@ -284,58 +324,107 @@ export default function Home() {
             </Typography>
           </Paper>
 
-          <Button
-            variant="outlined"
-            onClick={() => setShowAnswer(!showAnswer)}
-            sx={{ mt: 1 }}
-          >
-            {showAnswer ? "答えを隠す" : "想定解答と解説を見る"}
-          </Button>
+          {/* 回答入力エリア */}
+          {judgmentResult === null && (
+            <Box sx={{ mt: 2, display: "flex", gap: 2, alignItems: "flex-start" }}>
+              <TextField
+                id="answer-input"
+                label="あなたの回答"
+                variant="outlined"
+                fullWidth
+                value={userAnswer}
+                onChange={(e) => setUserAnswer(e.target.value)}
+                onKeyPress={(e) => {
+                  if (e.key === "Enter") {
+                    handleSubmitAnswer();
+                  }
+                }}
+                placeholder="回答を入力してください"
+              />
+              <Button
+                variant="contained"
+                size="large"
+                onClick={handleSubmitAnswer}
+                sx={{ whiteSpace: "nowrap", minWidth: "100px" }}
+              >
+                回答する
+              </Button>
+            </Box>
+          )}
 
-          {/* 答えと解説 (アコーディオンで表示) */}
-          <Collapse in={showAnswer}>
-            {/* 想定解答 */}
-            <Typography variant="h6" component="h3" sx={{ mt: 2, fontWeight: "bold" }}>
-              想定解答
-            </Typography>
+          {/* 判定結果表示 */}
+          {judgmentResult !== null && (
             <Paper
               variant="outlined"
               sx={{
                 p: 2,
-                backgroundColor: "#e8f5e9",
+                mt: 2,
+                backgroundColor: judgmentResult === "correct" ? "#e8f5e9" : "#ffebee",
+                borderColor: judgmentResult === "correct" ? "#4caf50" : "#f44336",
+                borderWidth: 2,
               }}
             >
-              <Typography variant="body1" sx={{ fontSize: "1.1rem", color: "success.dark", fontWeight: "bold" }}>
-                {quiz.answer}
+              <Typography
+                variant="h6"
+                sx={{
+                  fontWeight: "bold",
+                  color: judgmentResult === "correct" ? "success.dark" : "error.dark",
+                }}
+              >
+                {judgmentResult === "correct" ? "正解！" : "不正解"}
+              </Typography>
+              <Typography variant="body2" sx={{ mt: 1 }}>
+                あなたの回答: {userAnswer}
               </Typography>
             </Paper>
+          )}
 
-            {/* 別解 */}
-            <Typography variant="h6" component="h3" sx={{ mt: 2 }}>
-              別解/正誤判定基準
-            </Typography>
-            <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
-              {quiz["Alternative Solutions/Correctness Judgment Criteria"]}
-            </Typography>
+          {/* 正解例と解説（判定後に自動表示） */}
+          {judgmentResult !== null && (
+            <>
+              {/* 想定解答（正解例） */}
+              <Typography variant="h6" component="h3" sx={{ mt: 2, fontWeight: "bold" }}>
+                想定解答（正解例）
+              </Typography>
+              <Paper
+                variant="outlined"
+                sx={{
+                  p: 2,
+                  backgroundColor: "#e8f5e9",
+                }}
+              >
+                <Typography variant="body1" sx={{ fontSize: "1.1rem", color: "success.dark", fontWeight: "bold" }}>
+                  {quiz.answer}
+                </Typography>
+              </Paper>
 
-            {/* 解説 */}
-            <Typography variant="h6" component="h3" sx={{ mt: 2 }}>
-              解説
-            </Typography>
-            <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
-              {quiz.explanation}
-            </Typography>
+              {/* 別解 */}
+              <Typography variant="h6" component="h3" sx={{ mt: 2 }}>
+                別解/正誤判定基準
+              </Typography>
+              <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
+                {quiz["Alternative Solutions/Correctness Judgment Criteria"]}
+              </Typography>
 
-            {/* 出典 */}
-            <Typography variant="h6" component="h3" sx={{ mt: 2 }}>
-              出典
-            </Typography>
-            <Typography variant="body2">
-              <a href={quiz.source.url} target="_blank" rel="noopener noreferrer">
-                {quiz.source.title}
-              </a>
-            </Typography>
-          </Collapse>
+              {/* 解説 */}
+              <Typography variant="h6" component="h3" sx={{ mt: 2 }}>
+                解説
+              </Typography>
+              <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
+                {quiz.explanation}
+              </Typography>
+
+              {/* 出典 */}
+              <Typography variant="h6" component="h3" sx={{ mt: 2 }}>
+                出典
+              </Typography>
+              <Typography variant="body2">
+                <a href={quiz.source.url} target="_blank" rel="noopener noreferrer">
+                  {quiz.source.title}
+                </a>
+              </Typography>
+            </>
+          )}
         </Paper>
       )}
     </Box>
