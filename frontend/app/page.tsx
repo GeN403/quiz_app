@@ -43,6 +43,11 @@ export default function Home() {
     setError(""); // 前のエラーをリセット
     setIsLoading(true); // ローディング開始
     setShowAnswer(false); // 答えを隠す
+
+    // タイムアウト設定（30秒）
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
       const res = await fetch(`${apiUrl}/generate-quiz`, {
@@ -51,18 +56,46 @@ export default function Home() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ url: url }), // 入力されたURLを送信
+        signal: controller.signal, // タイムアウト用
       });
 
+      clearTimeout(timeoutId); // タイムアウトをクリア
+
       if (!res.ok) {
-        throw new Error("APIリクエストに失敗しました");
+        // HTTPステータスコードに応じたエラーメッセージ
+        if (res.status >= 500) {
+          throw new Error(
+            "バックエンドサーバーでエラーが発生しました。時間をおいて再度お試しください。"
+          );
+        } else if (res.status === 400) {
+          throw new Error(
+            "入力されたURLが無効です。正しいURLを入力してください。"
+          );
+        } else {
+          throw new Error(`APIエラー: ${res.status} ${res.statusText}`);
+        }
       }
 
       const data = await res.json();
       setQuiz(data); // クイズデータをオブジェクトとして保存
     } catch (error: any) {
       console.error(error);
-      setError(error.message || "不明なエラーが発生しました。");
+
+      // エラーの種類に応じたメッセージ
+      if (error.name === "AbortError") {
+        setError(
+          "リクエストがタイムアウトしました。ネットワーク接続を確認するか、時間をおいて再度お試しください。"
+        );
+      } else if (error.message.includes("Failed to fetch") || error.message.includes("fetch")) {
+        setError(
+          "バックエンドサーバーに接続できません。サーバーが起動しているか確認してください。\n" +
+          "起動方法: backend/ で「uvicorn main:app --reload」を実行"
+        );
+      } else {
+        setError(error.message || "不明なエラーが発生しました。");
+      }
     } finally {
+      clearTimeout(timeoutId);
       setIsLoading(false); // ローディング終了
     }
   };
@@ -116,7 +149,24 @@ export default function Home() {
 
       {/* --- エラー表示エリア --- */}
       {error && (
-        <Alert severity="error" sx={{ width: "100%", maxWidth: "700px" }}>
+        <Alert
+          severity="error"
+          sx={{
+            width: "100%",
+            maxWidth: "700px",
+            whiteSpace: "pre-wrap", // 改行を反映
+          }}
+          action={
+            <Button
+              color="inherit"
+              size="small"
+              onClick={handleGenerate}
+              disabled={isLoading}
+            >
+              再試行
+            </Button>
+          }
+        >
           {error}
         </Alert>
       )}
