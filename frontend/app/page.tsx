@@ -56,6 +56,9 @@ const CATEGORIES = [
 // LocalStorageのキー名
 const HISTORY_STORAGE_KEY = "quiz_app_history";
 
+// 回答の最大文字数
+const MAX_ANSWER_LENGTH = 200;
+
 // LocalStorageから履歴を取得
 const getHistory = (): QuizHistory[] => {
   if (typeof window === "undefined") return [];
@@ -137,8 +140,16 @@ export default function Home() {
   // 回答の正誤判定
   const handleSubmitAnswer = () => {
     if (!quiz) return;
+
+    // 空回答チェック
     if (!userAnswer.trim()) {
       setError("回答を入力してください。");
+      return;
+    }
+
+    // 文字数制限チェック
+    if (userAnswer.length > MAX_ANSWER_LENGTH) {
+      setError(`回答は${MAX_ANSWER_LENGTH}文字以内で入力してください。（現在: ${userAnswer.length}文字）`);
       return;
     }
 
@@ -508,31 +519,36 @@ export default function Home() {
 
           {/* 回答入力エリア */}
           {judgmentResult === null && (
-            <Box sx={{ mt: 2, display: "flex", gap: 2, alignItems: "flex-start" }}>
-              <TextField
-                id="answer-input"
-                label="あなたの回答"
-                variant="outlined"
-                fullWidth
-                value={userAnswer}
-                onChange={(e) => setUserAnswer(e.target.value)}
-                onKeyPress={(e) => {
-                  if (e.key === "Enter" && !isLoading) {
-                    handleSubmitAnswer();
-                  }
-                }}
-                placeholder="回答を入力してください"
-                disabled={isLoading}
-              />
-              <Button
-                variant="contained"
-                size="large"
-                onClick={handleSubmitAnswer}
-                disabled={isLoading}
-                sx={{ whiteSpace: "nowrap", minWidth: "100px" }}
-              >
-                回答する
-              </Button>
+            <Box sx={{ mt: 2 }}>
+              <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
+                <TextField
+                  id="answer-input"
+                  label="あなたの回答"
+                  variant="outlined"
+                  fullWidth
+                  value={userAnswer}
+                  onChange={(e) => setUserAnswer(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === "Enter" && !isLoading) {
+                      handleSubmitAnswer();
+                    }
+                  }}
+                  placeholder="回答を入力してください"
+                  disabled={isLoading}
+                  inputProps={{ maxLength: MAX_ANSWER_LENGTH }}
+                  helperText={`${userAnswer.length}/${MAX_ANSWER_LENGTH}文字`}
+                  error={userAnswer.length > MAX_ANSWER_LENGTH}
+                />
+                <Button
+                  variant="contained"
+                  size="large"
+                  onClick={handleSubmitAnswer}
+                  disabled={isLoading}
+                  sx={{ whiteSpace: "nowrap", minWidth: "100px" }}
+                >
+                  回答する
+                </Button>
+              </Box>
             </Box>
           )}
 
