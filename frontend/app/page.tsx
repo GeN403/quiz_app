@@ -123,6 +123,16 @@ export default function Home() {
   // 履歴データ
   const [history, setHistory] = useState<QuizHistory[]>([]);
 
+  // === 生成オプション用の状態 ===
+  // URL指定（任意）
+  const [sourceUrl, setSourceUrl] = useState<string>("");
+  // 問題数指定（デフォルト1）
+  const [questionCount, setQuestionCount] = useState<number>(1);
+  // 複数問生成時のクイズデータ配列
+  const [questions, setQuestions] = useState<QuizData[]>([]);
+  // 複数問生成時の現在の問題インデックス
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState<number>(0);
+
   // 初回レンダリング時に履歴を読み込む
   useEffect(() => {
     setHistory(getHistory());
@@ -197,6 +207,8 @@ export default function Home() {
     }
 
     setQuiz(null); // 前のクイズをリセット
+    setQuestions([]); // 前の複数問クイズをリセット
+    setCurrentQuestionIndex(0); // インデックスリセット
     setError(""); // 前のエラーをリセット
     setIsLoading(true); // ローディング開始
     setShowAnswer(false); // 答えを隠す
@@ -209,12 +221,25 @@ export default function Home() {
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+      // リクエストボディを構築
+      const requestBody: any = {
+        category: category,
+        question_count: questionCount,
+      };
+
+      // URL指定がある場合
+      if (sourceUrl.trim()) {
+        requestBody.source_type = "url";
+        requestBody.source_value = sourceUrl.trim();
+      }
+
       const res = await fetch(`${apiUrl}/generate-quiz`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ category: category }), // 選択されたカテゴリを送信
+        body: JSON.stringify(requestBody),
         signal: controller.signal, // タイムアウト用
       });
 
@@ -288,7 +313,24 @@ export default function Home() {
       }
 
       const data = await res.json();
-      setQuiz(data); // クイズデータをオブジェクトとして保存
+
+      // レスポンス形式に応じた処理
+      if (questionCount === 1) {
+        // 単問の場合: オブジェクトをそのまま保存
+        setQuiz(data);
+      } else {
+        // 複数問の場合: {"questions": [...]} 形式
+        if (data.questions && Array.isArray(data.questions)) {
+          setQuestions(data.questions);
+          setCurrentQuestionIndex(0);
+          // 最初の問題を表示
+          if (data.questions.length > 0) {
+            setQuiz(data.questions[0]);
+          }
+        } else {
+          throw new Error("複数問生成のレスポンス形式が不正です。");
+        }
+      }
     } catch (error: any) {
       console.error(error);
 
@@ -342,41 +384,79 @@ export default function Home() {
         <Typography variant="h6" component="h2">
           カテゴリを選択してクイズを生成
         </Typography>
-        <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
-          <FormControl fullWidth>
-            <InputLabel id="category-select-label">カテゴリ</InputLabel>
-            <Select
-              labelId="category-select-label"
-              id="category-select"
-              value={category}
-              label="カテゴリ"
-              onChange={(e) => setCategory(e.target.value)}
-              disabled={isLoading}
-            >
-              {CATEGORIES.map((cat) => (
-                <MenuItem key={cat.value} value={cat.value}>
-                  {cat.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <Button
-            variant="contained"
-            size="large"
-            onClick={handleGenerate}
-            disabled={isLoading || !category}
-            sx={{ whiteSpace: "nowrap", minWidth: "120px" }}
+
+        {/* カテゴリ選択 */}
+        <FormControl fullWidth>
+          <InputLabel id="category-select-label">カテゴリ</InputLabel>
+          <Select
+            labelId="category-select-label"
+            id="category-select"
+            value={category}
+            label="カテゴリ"
+            onChange={(e) => setCategory(e.target.value)}
+            disabled={isLoading}
           >
-            {isLoading ? (
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                <CircularProgress size={20} color="inherit" />
-                <span>生成中...</span>
-              </Box>
-            ) : (
-              "生成"
-            )}
-          </Button>
+            {CATEGORIES.map((cat) => (
+              <MenuItem key={cat.value} value={cat.value}>
+                {cat.label}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+
+        {/* 生成オプション */}
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 1 }}>
+          <Typography variant="subtitle2" color="text.secondary">
+            生成オプション（任意）
+          </Typography>
+
+          {/* URL指定 */}
+          <TextField
+            label="URL指定（任意）"
+            placeholder="https://kotobank.jp/..."
+            value={sourceUrl}
+            onChange={(e) => setSourceUrl(e.target.value)}
+            disabled={isLoading}
+            helperText="URLを指定すると、そのページの内容を元に問題を生成します"
+            fullWidth
+          />
+
+          {/* 問題数指定 */}
+          <TextField
+            label="問題数"
+            type="number"
+            value={questionCount}
+            onChange={(e) => {
+              const val = parseInt(e.target.value);
+              if (val >= 1 && val <= 5) {
+                setQuestionCount(val);
+              }
+            }}
+            disabled={isLoading}
+            inputProps={{ min: 1, max: 5 }}
+            helperText="1〜5問まで指定可能"
+            sx={{ width: "200px" }}
+          />
         </Box>
+
+        {/* 生成ボタン */}
+        <Button
+          variant="contained"
+          size="large"
+          onClick={handleGenerate}
+          disabled={isLoading || !category}
+          fullWidth
+          sx={{ mt: 2 }}
+        >
+          {isLoading ? (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <CircularProgress size={20} color="inherit" />
+              <span>生成中...</span>
+            </Box>
+          ) : (
+            "生成"
+          )}
+        </Button>
       </Paper>
 
       {/* --- 履歴表示ボタン --- */}
@@ -503,6 +583,49 @@ export default function Home() {
             "& > *": { mb: 2 }, // 各要素の間にマージン
           }}
         >
+          {/* 複数問の場合の進捗表示 */}
+          {questions.length > 1 && (
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+              <Typography variant="subtitle1" color="text.secondary">
+                問題 {currentQuestionIndex + 1} / {questions.length}
+              </Typography>
+              <Box sx={{ display: "flex", gap: 1 }}>
+                <Button
+                  size="small"
+                  onClick={() => {
+                    if (currentQuestionIndex > 0) {
+                      const newIndex = currentQuestionIndex - 1;
+                      setCurrentQuestionIndex(newIndex);
+                      setQuiz(questions[newIndex]);
+                      setUserAnswer("");
+                      setJudgmentResult(null);
+                      setShowAnswer(false);
+                    }
+                  }}
+                  disabled={currentQuestionIndex === 0}
+                >
+                  前へ
+                </Button>
+                <Button
+                  size="small"
+                  onClick={() => {
+                    if (currentQuestionIndex < questions.length - 1) {
+                      const newIndex = currentQuestionIndex + 1;
+                      setCurrentQuestionIndex(newIndex);
+                      setQuiz(questions[newIndex]);
+                      setUserAnswer("");
+                      setJudgmentResult(null);
+                      setShowAnswer(false);
+                    }
+                  }}
+                  disabled={currentQuestionIndex === questions.length - 1}
+                >
+                  次へ
+                </Button>
+              </Box>
+            </Box>
+          )}
+
           {/* 問題文 */}
           <Typography variant="h5" component="h2" sx={{ fontWeight: "bold", color: "primary.main" }}>
             問題文

@@ -14,6 +14,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import Optional, List, Literal
 
 # .envファイルから環境変数を読み込む
 load_dotenv()
@@ -51,6 +52,9 @@ app.add_middleware(
 # リクエストボディの型を定義
 class QuizRequest(BaseModel):
     category: str
+    source_type: Optional[Literal["category", "url"]] = "category"
+    source_value: Optional[str] = None  # URL指定時に使用
+    question_count: Optional[int] = 1  # 生成する問題数（デフォルト1）
 
 # # 使用するモデルを選択（実際に利用可能なモデル名にしてください）
 # model = genai.GenerativeModel('gemini-2.5-flash')
@@ -257,6 +261,71 @@ def validate_urls_in_response(response_text: str):
 
 # ----------------------------------------------------
 
+def build_dynamic_prompt(category_name: str, source_type: str, source_value: Optional[str], question_count: int) -> str:
+    """
+    生成パラメータに応じて動的にプロンプトを構築する
+    """
+    # 基本的な制約条件
+    base_constraints = CONSTRAINT_RULES
+
+    # 問題数に応じた出力形式指示
+    if question_count == 1:
+        output_instruction = """
+# 出力形式
+・あなたの応答は、解説や挨拶を一切含んではいけません。
+・あなたの応答は、**「制約条件」をすべて満たしたJSONオブジェクトそのもの**である必要があります。
+"""
+    else:
+        output_instruction = f"""
+# 出力形式
+・あなたの応答は、解説や挨拶を一切含んではいけません。
+・あなたの応答は、**{question_count}問のクイズを含むJSON配列**である必要があります。
+・配列の各要素は「制約条件」をすべて満たしたJSONオブジェクトである必要があります。
+・形式: [{{"question": "...", "answer": "...", ...}}, {{"question": "...", "answer": "...", ...}}, ...]
+"""
+
+    # ソースタイプに応じた指示
+    if source_type == "url" and source_value:
+        source_instruction = f"""
+# 参照元指定
+・以下のURLの内容**のみ**を根拠に問題を作成してください：
+  {source_value}
+・このURL以外の情報を参照してはいけません。
+・"source"の"url"には、必ずこのURLを設定してください。
+"""
+    else:
+        source_instruction = f"""
+# カテゴリ
+・「{category_name}」のカテゴリに関連する、競技クイズとして適切な難易度の問題を作成してください。
+"""
+
+    # プロンプト構築
+    prompt = f"""
+# 役割
+あなたはプロのクイズ作家であり、JSONの専門家です。
+
+# タスク
+競技クイズで使えるような本格的なクイズを作成してください。
+
+# 制約条件
+{base_constraints}
+
+{source_instruction}
+
+{output_instruction}
+
+# 追加の指示
+・"source"の"title"には、クイズの題材となった具体的なトピック名を設定してください
+・"source"の"url"には、そのトピックに関連する信頼できる参考URLを設定してください
+  - 必ずコトバンク（https://kotobank.jp）または公式サイト（*.go.jp、*.ac.jp）のURLを使用してください
+  - ブログ、まとめサイト、SNS、Q&Aサイトは使用禁止です
+  - 適切なURLが見つからない場合は、「参照URLを提示できません」と記載してください
+"""
+
+    return prompt
+
+# ----------------------------------------------------
+
 def get_web_info(url: str):
     """URLから本文テキストとタイトルを抽出する関数"""
     try:
@@ -284,24 +353,52 @@ def get_web_info(url: str):
 async def generate_quiz(request: QuizRequest):
     """
     カテゴリを受け取り、Gemini API呼び出しを行ってクイズを生成する
+    オプション: URL指定、複数題生成
     """
-    print(f"リクエスト受信: category = {request.category}")
+    print(f"リクエスト受信: category = {request.category}, source_type = {request.source_type}, question_count = {request.question_count}")
 
-    # 1. カテゴリの検証
+    # 1. リクエストパラメータの検証
     if request.category not in CATEGORY_NAMES:
         raise HTTPException(
             status_code=400,
             detail=f"無効なカテゴリです。有効なカテゴリ: {', '.join(CATEGORY_NAMES.keys())}"
         )
 
+    # 問題数の上限チェック（3-5問）
+    if request.question_count < 1 or request.question_count > 5:
+        raise HTTPException(
+            status_code=400,
+            detail="question_countは1〜5の範囲で指定してください。"
+        )
+
+    # URL指定時のバリデーション
+    if request.source_type == "url":
+        if not request.source_value:
+            raise HTTPException(
+                status_code=400,
+                detail="source_type が 'url' の場合、source_value（URL）を指定してください。"
+            )
+        # URL形式の簡易チェック
+        if not request.source_value.startswith(("http://", "https://")):
+            raise HTTPException(
+                status_code=400,
+                detail="source_value には http:// または https:// で始まる有効なURLを指定してください。"
+            )
+
     category_name = CATEGORY_NAMES[request.category]
     print(f"[INFO] カテゴリ: {category_name}")
+    print(f"[INFO] 生成モード: {request.source_type}, 問題数: {request.question_count}")
 
     try:
-        # --- AI呼び出し（1回だけ） ---
+        # --- AI呼び出し ---
         print("\n--- [1] 生成フェーズ ---")
-        full_prompt = prompt_template.format(
-            category_name=category_name
+
+        # 動的プロンプト生成
+        full_prompt = build_dynamic_prompt(
+            category_name=category_name,
+            source_type=request.source_type,
+            source_value=request.source_value,
+            question_count=request.question_count
         )
         print("[AI] クイズを生成中...")
 
@@ -383,7 +480,7 @@ async def generate_quiz(request: QuizRequest):
 
         print("[OK] 最終版が完成しました！(クリーンアップ後)")
 
-        # JSON文字列をPythonの辞書に変換
+        # JSON文字列をPythonのオブジェクト（辞書 or リスト）に変換
         final_json = json.loads(final_text)
 
         # --- URL検証フェーズ ---
@@ -404,7 +501,23 @@ async def generate_quiz(request: QuizRequest):
         for url in all_urls:
             print(f"  ✓ {url}")
 
-        return final_json
+        # レスポンス形式の統一
+        # 単問の場合: オブジェクトを返す（後方互換性）
+        # 複数問の場合: {"questions": [...]} 形式で返す
+        if request.question_count == 1:
+            # 単問の場合、オブジェクトをそのまま返す
+            if isinstance(final_json, list) and len(final_json) > 0:
+                # AIが配列で返した場合、最初の要素を返す
+                return final_json[0]
+            else:
+                return final_json
+        else:
+            # 複数問の場合、配列を {"questions": [...]} でラップして返す
+            if isinstance(final_json, list):
+                return {"questions": final_json}
+            else:
+                # AIがオブジェクトで返した場合（エラー対応）
+                return {"questions": [final_json]}
 
     # エラーキャッチをより具体的にする
     except json.JSONDecodeError as e:
