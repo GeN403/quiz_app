@@ -174,6 +174,11 @@ export default function Home() {
   };
 
   const handleGenerate = async () => {
+    // 既にローディング中の場合は何もしない（二重送信防止）
+    if (isLoading) {
+      return;
+    }
+
     // カテゴリ未選択の場合はエラー表示
     if (!category) {
       setError("カテゴリを選択してください。");
@@ -346,7 +351,14 @@ export default function Home() {
             disabled={isLoading || !category}
             sx={{ whiteSpace: "nowrap", minWidth: "120px" }}
           >
-            {isLoading ? <CircularProgress size={24} /> : "生成"}
+            {isLoading ? (
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <CircularProgress size={20} color="inherit" />
+                <span>生成中...</span>
+              </Box>
+            ) : (
+              "生成"
+            )}
           </Button>
         </Box>
       </Paper>
@@ -505,16 +517,18 @@ export default function Home() {
                 value={userAnswer}
                 onChange={(e) => setUserAnswer(e.target.value)}
                 onKeyPress={(e) => {
-                  if (e.key === "Enter") {
+                  if (e.key === "Enter" && !isLoading) {
                     handleSubmitAnswer();
                   }
                 }}
                 placeholder="回答を入力してください"
+                disabled={isLoading}
               />
               <Button
                 variant="contained"
                 size="large"
                 onClick={handleSubmitAnswer}
+                disabled={isLoading}
                 sx={{ whiteSpace: "nowrap", minWidth: "100px" }}
               >
                 回答する
