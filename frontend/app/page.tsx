@@ -2,356 +2,53 @@
 
 "use client";
 
-import { useState, useEffect } from "react"; // useStateとuseEffectをインポート
 import {
   Box,
   Button,
   TextField,
   Typography,
   Paper,
-  CircularProgress, // ローディングスピナー用
-  Collapse, // アコーディオン用
-  Alert, // エラー表示用
+  CircularProgress,
+  Alert,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
 } from "@mui/material";
-
-// AIから返ってくるJSONの型を定義
-interface QuizData {
-  question: string;
-  answer: string;
-  "Alternative Solutions/Correctness Judgment Criteria": string;
-  explanation: string;
-  source: {
-    title: string;
-    url: string;
-  };
-}
-
-// 履歴データの型を定義
-interface QuizHistory {
-  id: string; // 一意のID
-  category: string; // カテゴリ
-  categoryLabel: string; // カテゴリの日本語名
-  question: string; // 問題文
-  correctAnswer: string; // 想定解答
-  userAnswer: string; // ユーザーの回答
-  isCorrect: boolean; // 正誤
-  timestamp: number; // タイムスタンプ（UNIXタイム）
-}
-
-// カテゴリの定義
-const CATEGORIES = [
-  { value: "history", label: "歴史" },
-  { value: "science", label: "科学" },
-  { value: "literature", label: "文学" },
-  { value: "geography", label: "地理" },
-  { value: "sports", label: "スポーツ" },
-  { value: "arts", label: "芸術" },
-  { value: "general", label: "一般知識" },
-] as const;
-
-// LocalStorageのキー名
-const HISTORY_STORAGE_KEY = "quiz_app_history";
-
-// 回答の最大文字数
-const MAX_ANSWER_LENGTH = 200;
-
-// LocalStorageから履歴を取得
-const getHistory = (): QuizHistory[] => {
-  if (typeof window === "undefined") return [];
-  try {
-    const stored = localStorage.getItem(HISTORY_STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
-  } catch (error) {
-    console.error("履歴の読み込みに失敗しました:", error);
-    return [];
-  }
-};
-
-// LocalStorageに履歴を保存
-const saveHistory = (history: QuizHistory[]) => {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history));
-  } catch (error) {
-    console.error("履歴の保存に失敗しました:", error);
-  }
-};
-
-// 履歴に新しいエントリを追加
-const addHistoryEntry = (entry: QuizHistory) => {
-  const history = getHistory();
-  // 新しいエントリを先頭に追加（最新が最初）
-  history.unshift(entry);
-  // 最大100件まで保存
-  if (history.length > 100) {
-    history.pop();
-  }
-  saveHistory(history);
-};
-
-// 履歴をクリア
-const clearHistory = () => {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.removeItem(HISTORY_STORAGE_KEY);
-  } catch (error) {
-    console.error("履歴のクリアに失敗しました:", error);
-  }
-};
+import { CATEGORIES, MAX_ANSWER_LENGTH } from "./lib/constants";
+import { useQuizGeneration } from "./hooks/useQuizGeneration";
 
 export default function Home() {
-  // ユーザーが選択したカテゴリを保存するための箱
-  const [category, setCategory] = useState<string>("");
-  // クイズデータ（オブジェクト）を保存する箱
-  const [quiz, setQuiz] = useState<QuizData | null>(null);
-  // ローディング状態を管理する箱
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  // エラーメッセージを保存する箱
-  const [error, setError] = useState<string>("");
-  // ユーザーの回答を保存する箱
-  const [userAnswer, setUserAnswer] = useState<string>("");
-  // 判定結果を保存する箱（null: 未判定, "correct": 正解, "incorrect": 不正解）
-  const [judgmentResult, setJudgmentResult] = useState<"correct" | "incorrect" | null>(null);
-  // 答えを表示するかどうかを管理する箱
-  const [showAnswer, setShowAnswer] = useState<boolean>(false);
-  // 履歴を表示するかどうか
-  const [showHistory, setShowHistory] = useState<boolean>(false);
-  // 履歴データ
-  const [history, setHistory] = useState<QuizHistory[]>([]);
-
-  // === 生成オプション用の状態 ===
-  // URL指定（任意）
-  const [sourceUrl, setSourceUrl] = useState<string>("");
-  // 問題数指定（デフォルト1）
-  const [questionCount, setQuestionCount] = useState<number>(1);
-  // 複数問生成時のクイズデータ配列
-  const [questions, setQuestions] = useState<QuizData[]>([]);
-  // 複数問生成時の現在の問題インデックス
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState<number>(0);
-
-  // 初回レンダリング時に履歴を読み込む
-  useEffect(() => {
-    setHistory(getHistory());
-  }, []);
-
-  // 回答を正規化する関数（スペース削除、小文字変換、全角→半角）
-  const normalizeAnswer = (text: string): string => {
-    return text
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, "") // スペース削除
-      .replace(/[Ａ-Ｚａ-ｚ０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xfee0)); // 全角→半角
-  };
-
-  // 回答の正誤判定
-  const handleSubmitAnswer = () => {
-    if (!quiz) return;
-
-    // 空回答チェック
-    if (!userAnswer.trim()) {
-      setError("回答を入力してください。");
-      return;
-    }
-
-    // 文字数制限チェック
-    if (userAnswer.length > MAX_ANSWER_LENGTH) {
-      setError(`回答は${MAX_ANSWER_LENGTH}文字以内で入力してください。（現在: ${userAnswer.length}文字）`);
-      return;
-    }
-
-    setError(""); // エラーをクリア
-
-    // 正規化した回答と正解を比較
-    const normalizedUserAnswer = normalizeAnswer(userAnswer);
-    const normalizedCorrectAnswer = normalizeAnswer(quiz.answer);
-
-    // 完全一致で判定
-    const isCorrect = normalizedUserAnswer === normalizedCorrectAnswer;
-    setJudgmentResult(isCorrect ? "correct" : "incorrect");
-
-    // 履歴に保存
-    const categoryLabel = CATEGORIES.find(cat => cat.value === category)?.label || category;
-    const historyEntry: QuizHistory = {
-      id: `${Date.now()}_${Math.random()}`, // 一意のID
-      category: category,
-      categoryLabel: categoryLabel,
-      question: quiz.question,
-      correctAnswer: quiz.answer,
-      userAnswer: userAnswer,
-      isCorrect: isCorrect,
-      timestamp: Date.now(),
-    };
-    addHistoryEntry(historyEntry);
-
-    // 履歴を再読み込み
-    setHistory(getHistory());
-
-    // 判定後は自動的に正解例を表示
-    setShowAnswer(true);
-  };
-
-  const handleGenerate = async () => {
-    // 既にローディング中の場合は何もしない（二重送信防止）
-    if (isLoading) {
-      return;
-    }
-
-    // カテゴリ未選択の場合はエラー表示
-    if (!category) {
-      setError("カテゴリを選択してください。");
-      return;
-    }
-
-    setQuiz(null); // 前のクイズをリセット
-    setQuestions([]); // 前の複数問クイズをリセット
-    setCurrentQuestionIndex(0); // インデックスリセット
-    setError(""); // 前のエラーをリセット
-    setIsLoading(true); // ローディング開始
-    setShowAnswer(false); // 答えを隠す
-    setUserAnswer(""); // ユーザーの回答をリセット
-    setJudgmentResult(null); // 判定結果をリセット
-
-    // タイムアウト設定（30秒）
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
-      // リクエストボディを構築
-      const requestBody: any = {
-        category: category,
-        question_count: questionCount,
-      };
-
-      // URL指定がある場合
-      if (sourceUrl.trim()) {
-        requestBody.source_type = "url";
-        requestBody.source_value = sourceUrl.trim();
-      }
-
-      const res = await fetch(`${apiUrl}/generate-quiz`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(requestBody),
-        signal: controller.signal, // タイムアウト用
-      });
-
-      clearTimeout(timeoutId); // タイムアウトをクリア
-
-      if (!res.ok) {
-        // レスポンスボディからエラーメッセージを取得
-        let errorDetail = "";
-        try {
-          const errorData = await res.json();
-          errorDetail = errorData.detail || "";
-        } catch {
-          // JSON解析に失敗した場合は空文字列のまま
-        }
-
-        // HTTPステータスコードとエラーメッセージに応じた処理
-        if (res.status === 401 || errorDetail.includes("GEMINI_API_KEY_INVALID")) {
-          throw new Error(
-            "Gemini APIキーが無効です。\n" +
-            "管理者にお問い合わせください。\n\n" +
-            "開発者向け: backend/.envファイルのGEMINI_API_KEYを確認してください。"
-          );
-        } else if (res.status === 403 || errorDetail.includes("GEMINI_API_KEY_PERMISSION_DENIED")) {
-          throw new Error(
-            "Gemini APIキーの権限が不足しています。\n" +
-            "管理者にお問い合わせください。"
-          );
-        } else if (res.status === 429 || errorDetail.includes("GEMINI_RATE_LIMIT")) {
-          throw new Error(
-            "Gemini APIのリクエスト制限に達しました。\n" +
-            "しばらく待ってから再度お試しください。"
-          );
-        } else if (res.status === 503 || errorDetail.includes("GEMINI_SERVICE_UNAVAILABLE")) {
-          throw new Error(
-            "Gemini AIサービスが一時的に利用できません。\n" +
-            "しばらく待ってから再度お試しください。"
-          );
-        } else if (res.status === 504 || errorDetail.includes("GEMINI_TIMEOUT")) {
-          throw new Error(
-            "Gemini APIへのリクエストがタイムアウトしました。\n" +
-            "もう一度お試しください。"
-          );
-        } else if (errorDetail.includes("GEMINI_API_KEY_NOT_SET")) {
-          throw new Error(
-            "Gemini APIキーが設定されていません。\n" +
-            "管理者にお問い合わせください。\n\n" +
-            "開発者向け: backend/.envファイルにGEMINI_API_KEYを設定してください。"
-          );
-        } else if (errorDetail.includes("AI_INVALID_JSON")) {
-          throw new Error(
-            "AIの応答形式が不正です。\n" +
-            "もう一度お試しください。"
-          );
-        } else if (errorDetail.includes("SOURCE_RESTRICTION_VIOLATION")) {
-          throw new Error(
-            "参照元が制限（コトバンク/公式サイト）に一致しないため、生成結果を表示できません。\n" +
-            "別のカテゴリで再試行してください。"
-          );
-        } else if (res.status >= 500) {
-          throw new Error(
-            "バックエンドサーバーでエラーが発生しました。\n" +
-            "時間をおいて再度お試しください。"
-          );
-        } else if (res.status === 400) {
-          throw new Error(
-            "リクエストが無効です。もう一度お試しください。"
-          );
-        } else {
-          throw new Error(`APIエラー: ${res.status} ${res.statusText}`);
-        }
-      }
-
-      const data = await res.json();
-
-      // レスポンス形式に応じた処理
-      if (questionCount === 1) {
-        // 単問の場合: オブジェクトをそのまま保存
-        setQuiz(data);
-      } else {
-        // 複数問の場合: {"questions": [...]} 形式
-        if (data.questions && Array.isArray(data.questions)) {
-          setQuestions(data.questions);
-          setCurrentQuestionIndex(0);
-          // 最初の問題を表示
-          if (data.questions.length > 0) {
-            setQuiz(data.questions[0]);
-          }
-        } else {
-          throw new Error("複数問生成のレスポンス形式が不正です。");
-        }
-      }
-    } catch (error: any) {
-      console.error(error);
-
-      // エラーの種類に応じたメッセージ
-      if (error.name === "AbortError") {
-        setError(
-          "リクエストがタイムアウトしました。ネットワーク接続を確認するか、時間をおいて再度お試しください。"
-        );
-      } else if (error.message.includes("Failed to fetch") || error.message.includes("fetch")) {
-        setError(
-          "バックエンドサーバーに接続できません。サーバーが起動しているか確認してください。\n" +
-          "起動方法: backend/ で「uvicorn main:app --reload」を実行"
-        );
-      } else {
-        setError(error.message || "不明なエラーが発生しました。");
-      }
-    } finally {
-      clearTimeout(timeoutId);
-      setIsLoading(false); // ローディング終了
-    }
-  };
+  const {
+    category,
+    setCategory,
+    sourceUrl,
+    setSourceUrl,
+    questionCount,
+    setQuestionCount,
+    quiz,
+    questions,
+    currentQuestionIndex,
+    resolvedSource,
+    selectedQuote,
+    setSelectedQuote,
+    isLoading,
+    error,
+    setError,
+    userAnswer,
+    setUserAnswer,
+    judgmentResult,
+    showAnswer,
+    showHistory,
+    setShowHistory,
+    history,
+    handleResolveSource,
+    handleGenerate,
+    handleSubmitAnswer,
+    handleClearHistory,
+    handlePreviousQuestion,
+    handleNextQuestion,
+  } = useQuizGeneration();
 
   return (
     <Box
@@ -363,7 +60,7 @@ export default function Home() {
         minHeight: "100vh",
         padding: 4,
         gap: 2,
-        backgroundColor: "#f5f5f5", // 背景色を少しつける
+        backgroundColor: "#f5f5f5",
       }}
     >
       <Typography variant="h4" component="h1" gutterBottom>
@@ -412,14 +109,39 @@ export default function Home() {
 
           {/* URL指定 */}
           <TextField
-            label="URL指定（任意）"
+            label="URL指定（必須）"
             placeholder="https://kotobank.jp/..."
             value={sourceUrl}
             onChange={(e) => setSourceUrl(e.target.value)}
             disabled={isLoading}
-            helperText="URLを指定すると、そのページの内容を元に問題を生成します"
+            helperText="URLを指定してください（コトバンク、*.go.jp、*.ac.jp のみ許可）"
             fullWidth
           />
+
+          {/* 本文を取得ボタン */}
+          <Button
+            variant="outlined"
+            onClick={handleResolveSource}
+            disabled={isLoading || !sourceUrl.trim()}
+            fullWidth
+          >
+            {isLoading ? "取得中..." : "本文を取得"}
+          </Button>
+
+          {/* 取得結果の表示 */}
+          {resolvedSource && (
+            <Box sx={{ p: 2, bgcolor: "#e8f5e9", borderRadius: 1 }}>
+              <Typography variant="subtitle2" color="success.main" gutterBottom>
+                ✓ 本文を取得しました
+              </Typography>
+              <Typography variant="caption" display="block">
+                タイトル: {resolvedSource.title}
+              </Typography>
+              <Typography variant="caption" display="block">
+                引用候補: {resolvedSource.quotes.length}件
+              </Typography>
+            </Box>
+          )}
 
           {/* 問題数指定 */}
           <TextField
@@ -487,12 +209,7 @@ export default function Home() {
                 variant="text"
                 color="error"
                 size="small"
-                onClick={() => {
-                  if (confirm("本当に履歴をすべて削除しますか？")) {
-                    clearHistory();
-                    setHistory([]);
-                  }
-                }}
+                onClick={handleClearHistory}
               >
                 履歴をクリア
               </Button>
@@ -554,7 +271,7 @@ export default function Home() {
           sx={{
             width: "100%",
             maxWidth: "700px",
-            whiteSpace: "pre-wrap", // 改行を反映
+            whiteSpace: "pre-wrap",
           }}
           action={
             <Button
@@ -580,7 +297,7 @@ export default function Home() {
             mt: 2,
             width: "100%",
             maxWidth: "700px",
-            "& > *": { mb: 2 }, // 各要素の間にマージン
+            "& > *": { mb: 2 },
           }}
         >
           {/* 複数問の場合の進捗表示 */}
@@ -592,32 +309,14 @@ export default function Home() {
               <Box sx={{ display: "flex", gap: 1 }}>
                 <Button
                   size="small"
-                  onClick={() => {
-                    if (currentQuestionIndex > 0) {
-                      const newIndex = currentQuestionIndex - 1;
-                      setCurrentQuestionIndex(newIndex);
-                      setQuiz(questions[newIndex]);
-                      setUserAnswer("");
-                      setJudgmentResult(null);
-                      setShowAnswer(false);
-                    }
-                  }}
+                  onClick={handlePreviousQuestion}
                   disabled={currentQuestionIndex === 0}
                 >
                   前へ
                 </Button>
                 <Button
                   size="small"
-                  onClick={() => {
-                    if (currentQuestionIndex < questions.length - 1) {
-                      const newIndex = currentQuestionIndex + 1;
-                      setCurrentQuestionIndex(newIndex);
-                      setQuiz(questions[newIndex]);
-                      setUserAnswer("");
-                      setJudgmentResult(null);
-                      setShowAnswer(false);
-                    }
-                  }}
+                  onClick={handleNextQuestion}
                   disabled={currentQuestionIndex === questions.length - 1}
                 >
                   次へ
