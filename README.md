@@ -20,10 +20,17 @@
 |--------|------|------|--------------|--------|
 | `GEMINI_API_KEY` | Google Gemini APIキー | ✅ | なし | [Google AI Studio](https://aistudio.google.com/app/apikey) |
 
-### フロントエンド（frontend/.env.local）- 任意
-| 変数名 | 説明 | 必須 | デフォルト値 | 備考 |
-|--------|------|------|--------------|------|
-| `NEXT_PUBLIC_API_URL` | FastAPIバックエンドのURL | ❌ | `http://localhost:8000` | 本番環境では変更が必要 |
+### フロントエンド環境変数
+Docker Compose 環境では、フロントエンドの環境変数は `docker-compose.yml` で自動設定されます。
+
+| 変数名 | 説明 | 設定場所 | デフォルト値 |
+|--------|------|----------|--------------|
+| `BACKEND_INTERNAL_URL` | バックエンドのコンテナ内部URL | `docker-compose.yml` | `http://backend:8000` |
+
+**注意**:
+- `BACKEND_INTERNAL_URL` は Next.js サーバー側（Route Handler）のみが参照します
+- ブラウザからは BFF パターンのプロキシ API (`/api/generate-quiz`) 経由でアクセスします
+- CORS 問題を回避するため、ブラウザは同一オリジン (`localhost:3000`) にリクエストします
 
 **重要な注意事項**:
 - `.env` ファイルは `.gitignore` で除外されており、**Gitにコミットされません**
@@ -35,19 +42,52 @@
 
 ```plaintext
 quiz_app/
-├── frontend/              # Next.js フロントエンド
-│   ├── app/              # Next.js App Router
-│   │   ├── page.tsx      # メインページ（URL入力・クイズ表示）
-│   │   └── layout.tsx    # レイアウト
+├── frontend/                    # Next.js フロントエンド
+│   ├── app/                    # Next.js App Router
+│   │   ├── page.tsx            # UIコンポーネント組み立て
+│   │   ├── hooks/              # カスタムフック (State管理)
+│   │   │   └── useQuizGeneration.ts
+│   │   ├── lib/                # ユーティリティライブラリ
+│   │   │   ├── api.ts          # API呼び出し
+│   │   │   ├── types.ts        # 型定義
+│   │   │   ├── constants.ts    # 定数
+│   │   │   ├── storage.ts      # LocalStorage操作
+│   │   │   └── utils.ts        # ヘルパー関数
+│   │   ├── api/                # Next.js Route Handlers (BFFプロキシ)
+│   │   │   ├── generate-quiz/
+│   │   │   └── resolve-source/
+│   │   └── layout.tsx          # レイアウト
 │   └── ...
 │
-├── backend/              # FastAPI バックエンド
-│   ├── main.py          # APIサーバー本体
-│   ├── requirements.txt # Python依存関係
-│   ├── .env.example     # 環境変数テンプレート
-│   └── venv/            # Python仮想環境（セットアップ後）
+├── backend/                    # FastAPI バックエンド
+│   ├── app/                    # アプリケーションコード（モジュール分割）
+│   │   ├── main.py             # FastAPI本体 (CORS・ルータ統合)
+│   │   ├── api/                # APIルーティング
+│   │   │   ├── router.py       # ルータ統合
+│   │   │   └── routes/         # エンドポイント実装
+│   │   │       ├── resolve_source.py
+│   │   │       └── generate_quiz.py
+│   │   ├── schemas/            # Pydanticモデル
+│   │   │   ├── requests.py
+│   │   │   └── responses.py
+│   │   ├── core/               # コアロジック
+│   │   │   ├── config.py       # アプリ設定
+│   │   │   ├── domain_validator.py
+│   │   │   ├── prompt_builder.py
+│   │   │   └── source_validator.py
+│   │   └── clients/            # 外部APIクライアント
+│   │       └── gemini_client.py
+│   ├── models/                 # データモデル
+│   │   └── quiz.py
+│   ├── services/               # ビジネスロジック
+│   │   └── source_resolver.py
+│   ├── main.py                 # エントリポイント（互換性レイヤー）
+│   ├── requirements.txt        # Python依存関係
+│   ├── .env.example            # 環境変数テンプレート
+│   └── venv/                   # Python仮想環境（セットアップ後）
 │
-├── package.json         # フロントエンド依存関係
+├── docker-compose.yml          # Docker Compose設定
+├── package.json                # フロントエンド依存関係
 └── README.md
 ```
 
@@ -80,17 +120,10 @@ GEMINI_API_KEY=あなたのAPIキーをここに貼り付け
 2. 「Create API Key」をクリック
 3. 生成されたAPIキーをコピーして上記の`.env`ファイルに貼り付け
 
-#### 2-2. フロントエンドの環境変数設定（任意）
-```bash
-cd ../frontend  # または cd ..してから cd frontend
-cp .env.example .env.local
-```
-
-デフォルト設定で動作しますが、本番環境や別のポートでバックエンドを起動する場合は変更してください：
-```env
-# frontend/.env.local
-NEXT_PUBLIC_API_URL=http://localhost:8000  # バックエンドのURL
-```
+#### 2-2. フロントエンドの環境変数設定
+Docker Compose 環境では、フロントエンドの環境変数は自動設定されるため、手動設定は不要です。
+- `docker-compose.yml` で `BACKEND_INTERNAL_URL=http://backend:8000` が自動設定されます
+- ブラウザは `/api/generate-quiz` (プロキシAPI) 経由でバックエンドにアクセスします
 
 ### 3. バックエンドのセットアップ
 
@@ -126,7 +159,210 @@ npm install
 
 ## 起動方法
 
-### ターミナル1: バックエンド起動
+### 方法1: Docker Compose で起動（推奨・Windows + Docker Desktop）
+
+Docker Desktop を使用してフロントエンドとバックエンドを同時に起動する方法です。
+
+#### 前提条件
+- Docker Desktop for Windows がインストールされていること
+- WSL2 backend が有効になっていること
+- PowerShell または Git Bash で実行
+
+#### Docker Desktop の確認と設定
+
+まず、Docker Desktop が正しく動作しているか確認します：
+
+```powershell
+# Docker のバージョン確認（Server 情報が表示されることを確認）
+docker version
+
+# Docker の詳細情報を確認
+docker info
+
+# Docker context の確認（desktop-linux が Active であることを確認）
+docker context ls
+```
+
+**注意**: `docker version` で **Server** セクションが表示されない場合、または `open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified.` のようなエラーが出る場合は、以下を確認してください：
+
+1. **Docker Desktop が起動しているか確認**
+   - タスクトレイに Docker アイコンがあるか確認
+   - Docker Desktop を起動していない場合は、スタートメニューから起動
+
+2. **Docker context が desktop-linux になっているか確認**
+   ```powershell
+   # 現在の context を確認
+   docker context ls
+
+   # desktop-linux が Active でない場合は切り替え
+   docker context use desktop-linux
+   ```
+
+3. **WSL2 backend が有効か確認**
+   - Docker Desktop の Settings > General > "Use the WSL 2 based engine" がチェックされているか確認
+
+参考:
+- Docker contexts: https://docs.docker.com/engine/manage-resources/contexts/
+- Docker context use: https://docs.docker.com/reference/cli/docker/context/use/
+- Docker Desktop setup: https://docs.docker.com/desktop/setup/install/linux/
+
+#### 環境変数の設定
+
+```powershell
+# backend/.env を作成
+cd backend
+cp .env.example .env
+# エディタで .env を開き、GEMINI_API_KEY を設定
+cd ..
+```
+
+#### Docker Compose で起動
+
+```powershell
+# イメージをビルドしてコンテナを起動
+docker compose up -d --build
+
+# ログを確認
+docker compose logs -f
+
+# 起動状態を確認
+docker compose ps
+```
+
+**注意**: Docker Compose v2 では `docker-compose.yml` のトップレベル `version:` フィールドは不要です（obsolete として無視されます）。本リポジトリの `docker-compose.yml` は `version:` を削除済みです。
+
+参考:
+- Compose version obsolete: https://github.com/docker/compose/issues/12068
+- Remove obsolete version: https://adamj.eu/tech/2025/05/05/docker-remove-obsolete-compose-version/
+
+#### 疎通確認
+
+PowerShell で API エンドポイントをテストします：
+
+```powershell
+# 1. Backend (FastAPI) の疎通確認
+Invoke-RestMethod -Uri "http://localhost:8000/openapi.json" -Method Get
+
+# 2. Frontend (Next.js) の疎通確認
+Invoke-WebRequest -Uri "http://localhost:3000" -Method Get
+
+# 3. プロキシAPI経由での動作確認（推奨）
+# ブラウザで http://localhost:3000 を開き、生成ボタンをクリック
+# - Network タブで /api/generate-quiz が呼ばれることを確認
+# - "Failed to fetch" エラーが出ないことを確認
+```
+
+**プロキシAPI方式の仕組み**:
+- ブラウザ → `http://localhost:3000/api/generate-quiz` (同一オリジン、CORS不要)
+- Next.js サーバー → `http://backend:8000/generate-quiz` (コンテナ間通信)
+- この方式により、ブラウザからは Docker のサービス名 `backend` を解決できない問題を回避
+
+**PowerShell の curl について**: PowerShell では `curl` は `Invoke-WebRequest` のエイリアスです。Linux/macOS の `curl` コマンドと互換性がないため、PowerShell では `curl.exe` または `Invoke-RestMethod` / `Invoke-WebRequest` を使用してください。
+
+参考:
+- PowerShell curl issue: https://superuser.com/questions/344927/powershell-equivalent-of-curl
+- Invoke-WebRequest: https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.utility/invoke-webrequest
+- Next.js Route Handlers: https://nextjs.org/docs/app/building-your-application/routing/route-handlers
+- Docker Compose networking: https://docs.docker.com/compose/how-tos/networking/
+
+ブラウザで以下にアクセスして確認：
+- Frontend: http://localhost:3000
+- Backend API Docs: http://localhost:8000/docs
+
+#### 停止とクリーンアップ
+
+```powershell
+# コンテナを停止
+docker compose down
+
+# コンテナ・ボリューム・イメージを完全削除
+docker compose down -v --rmi all
+```
+
+#### Docker Compose のトラブルシューティング
+
+##### `open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified.`
+
+このエラーは、Docker Desktop が起動していないか、Docker context が正しく設定されていない場合に発生します。
+
+**切り分け手順**:
+
+1. **Docker Desktop が起動しているか確認**
+   - タスクトレイに Docker アイコンが表示されているか確認
+   - 表示されていない場合は、スタートメニューから "Docker Desktop" を起動
+
+2. **docker version で Server 情報が表示されるか確認**
+   ```powershell
+   docker version
+   ```
+
+   **期待される出力**:
+   ```
+   Client:
+     Version:           ...
+     ...
+
+   Server: Docker Desktop ...
+     Engine:
+       Version:         ...
+   ```
+
+   **NG な出力** (Server セクションが無い、またはエラーが表示される):
+   ```
+   error during connect: Get "http://%2F%2F.%2Fpipe%2FdockerDesktopLinuxEngine/v1.24/version": open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified.
+   ```
+
+3. **docker context が desktop-linux になっているか確認**
+   ```powershell
+   docker context ls
+   ```
+
+   **期待される出力**:
+   ```
+   NAME                TYPE                DESCRIPTION                               DOCKER ENDPOINT
+   default             moby                Current DOCKER_HOST based configuration   npipe:////./pipe/docker_engine
+   desktop-linux    *  moby                Docker Desktop                            npipe:////./pipe/dockerDesktopLinuxEngine
+   ```
+
+   `desktop-linux` の左に `*` (Active) が付いていることを確認。付いていない場合は：
+   ```powershell
+   docker context use desktop-linux
+   ```
+
+4. **WSL2 backend が有効か確認**
+   - Docker Desktop を開く
+   - Settings (⚙️) > General
+   - "Use the WSL 2 based engine" にチェックが入っているか確認
+   - チェックが外れている場合は、チェックを入れて "Apply & Restart"
+
+5. **Docker Desktop を再起動**
+   - タスクトレイの Docker アイコンを右クリック > "Restart"
+   - または、Docker Desktop を完全に終了して再起動
+
+6. **それでも解決しない場合**
+   - Windows を再起動
+   - Docker Desktop を再インストール
+
+##### `docker compose` コマンドが見つからない
+
+**エラー**: `docker: 'compose' is not a docker command.`
+
+**原因**: Docker Compose v1 (docker-compose) がインストールされているが、v2 (docker compose) がインストールされていない
+
+**解決方法**:
+- Docker Desktop を最新版にアップデート（v2 は Docker Desktop に含まれています）
+- または、`docker-compose` (ハイフンあり) コマンドを使用：
+  ```powershell
+  docker-compose up -d --build
+  ```
+
+---
+
+### 方法2: 手動起動（ローカル環境）
+
+Docker を使わずに、ローカル環境で直接起動する方法です。
+
+#### ターミナル1: バックエンド起動
 ```bash
 cd backend
 venv\Scripts\activate  # Windowsの場合
@@ -135,6 +371,12 @@ uvicorn main:app --reload
 ```
 → `http://localhost:8000` でAPIサーバーが起動します
 → `http://localhost:8000/docs` でAPI仕様書（Swagger UI）を確認できます
+
+**💡 アーキテクチャ補足**:
+- `backend/main.py` は互換性レイヤー（エントリポイント）として機能
+- 実際のアプリケーションコードは `backend/app/` 配下にモジュール分割されています
+- `uvicorn main:app` で起動すると、内部的に `backend/app/main.py` の FastAPI アプリが読み込まれます
+- この設計により、既存の起動コマンドを変更せずにコードの保守性を向上させています
 
 ### ターミナル2: フロントエンド起動
 ```bash
@@ -672,16 +914,24 @@ uvicorn main:app --reload
 ### ❌ エラー: `TypeError: Failed to fetch` (フロントエンド)
 **症状**: Next.jsのブラウザコンソールに「TypeError: Failed to fetch」が表示され、クイズ生成が失敗する
 
-**原因**: バックエンド（FastAPI）が500 Internal Server Errorを返している
-- **根本原因**: Windows環境でPythonの`print()`関数が絵文字（例: 📄, ✅, ❌）を出力しようとすると、デフォルトのcp932エンコーディングで処理できずUnicodeEncodeErrorが発生
+**原因1**: Docker Compose 環境でブラウザが `http://backend:8000` に直接アクセスしようとしている
+- **根本原因**: ブラウザ（ホストPC）からは Docker のサービス名 `backend` を解決できない
+- **解決済み**: プロキシAPI方式（BFF パターン）を実装済み
+  - ブラウザ → `/api/generate-quiz` (同一オリジン)
+  - Next.js サーバー → `http://backend:8000/generate-quiz` (コンテナ間通信)
 
-**解決済み**: `backend/main.py`のprint文から絵文字を削除し、シンプルなテキスト（`[INFO]`, `[OK]`, `[ERROR]`）に置き換え済み
+**原因2**: バックエンド（FastAPI）が500 Internal Server Errorを返している
+- **根本原因**: Windows環境でPythonの`print()`関数が絵文字（例: 📄, ✅, ❌）を出力しようとすると、デフォルトのcp932エンコーディングで処理できずUnicodeEncodeErrorが発生
+- **解決済み**: `backend/main.py`のprint文から絵文字を削除し、シンプルなテキスト（`[INFO]`, `[OK]`, `[ERROR]`）に置き換え済み
 
 **確認方法**:
 ```powershell
-# バックエンドが正常に動作しているか確認
-curl -X POST http://127.0.0.1:8000/generate-quiz -H "Content-Type: application/json" -d '{"url":"https://example.com"}'
-# ステータスコード200が返ればOK
+# 1. Backend が正常に動作しているか確認
+Invoke-RestMethod -Uri "http://localhost:8000/openapi.json" -Method Get
+
+# 2. ブラウザで http://localhost:3000 を開き、Network タブで確認
+# - /api/generate-quiz が呼ばれること（ /generate-quiz ではない）
+# - "Failed to fetch" が出ないこと
 ```
 
 ### ❌ 複数の仮想環境（venv）が混在している
