@@ -1,0 +1,50 @@
+services:
+  # Backend service (FastAPI)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    env_file:
+      - ./backend/.env
+    environment:
+      - PYTHONUNBUFFERED=1
+    networks:
+      - app-network
+
+  # Frontend service (Next.js)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - BACKEND_INTERNAL_URL=http://backend:8000
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+  # Dev container service for VS Code
+  devcontainer:
+    image: mcr.microsoft.com/devcontainers/python:3.11-bookworm
+    command: sleep infinity
+    volumes:
+      - .:/workspace:cached
+    working_dir: /workspace
+    networks:
+      - app-network
+    environment:
+      - PYTHONUNBUFFERED=1
+
+networks:
+  app-network:
+    driver: bridge

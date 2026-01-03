@@ -1,0 +1,852 @@
+# main.py
+import os
+import sys
+import io
+import requests
+from bs4 import BeautifulSoup
+import google.generativeai as genai
+from google.api_core import exceptions as google_exceptions
+from dotenv import load_dotenv
+import json
+import re
+from urllib.parse import urlparse
+from pathlib import Path
+
+# Windows環境でのUTF-8出力を強制（cp932エンコーディングエラー対策）
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+if sys.stderr.encoding != 'utf-8':
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
+# FastAPI関連のインポート
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import Optional, List, Literal
+
+# .envファイルから環境変数を読み込む
+load_dotenv()
+api_key = os.getenv("GEMINI_API_KEY")
+
+# APIキーの存在チェックと設定
+if not api_key:
+    print("[WARNING] GEMINI_API_KEY が設定されていません。")
+    print("[WARNING] バックエンドは起動しますが、クイズ生成は失敗します。")
+    print("[WARNING] backend/.env ファイルに GEMINI_API_KEY を設定してください。")
+else:
+    print("[OK] GEMINI_API_KEY が正しく設定されています。")
+
+# APIキーを設定（Noneでも設定して、実際のAPI呼び出し時にエラーを捕捉）
+genai.configure(api_key=api_key)
+
+# FastAPIアプリケーションの初期化
+app = FastAPI()
+
+# CORSミドルウェアの設定（Next.jsのlocalhost:3000からのアクセスを許可する）
+origins = [
+    "http://localhost:3000",
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+# ----------------------------------------------------
+# ↓↓↓ プロンプトとルールの定義 ↓↓↓
+# ----------------------------------------------------
+
+# リクエストボディの型を定義
+class QuizRequest(BaseModel):
+    category: str
+    source_type: Optional[Literal["category", "url"]] = "category"
+    source_value: Optional[str] = None  # URL指定時に使用
+    question_count: Optional[int] = 1  # 生成する問題数（デフォルト1）
+
+# # 使用するモデルを選択（実際に利用可能なモデル名にしてください）
+# model = genai.GenerativeModel('gemini-2.5-flash')
+
+# # クイズの生成元となるページのURL
+# target_url = "https://kotobank.jp/word/%E5%B1%B1%E6%9D%B1%E4%BA%AC%E4%BC%9D-18131"
+
+# # 制約条件を独立した変数として定義（再利用するため）
+# CONSTRAINT_RULES = """
+# ・必ず「問題文」「正解」「別解/正誤判定基準」「解説」「出典」の要素を含めてください。
+# ・出力はJSON形式で、以下のキーを持つオブジェクトとしてください: "question", "answer", "Alternative Solutions/Correctness Judgment Criteria", "explanation","source"
+# ・"source"にはウェブページタイトルとURLを含めてください。
+# ・"question"では問題の後半で問題の答えを一意に絞れるような情報を盛り込んでください。
+# ・"Alternative Solutions/Correctness Judgment Criteria"については日本語での呼び方と外来語としての呼び方の両方が存在する場合、別解として「別解/正誤判定基準」欄にその旨を記載するか、どちらか一方に限定できる問題文に改めてください。
+# ・"question"の文末は「～でしょう？」としてください。
+# ・"question"の中でも、「日本で一番高い山は富士山ですが、世界で一番高い山は何でしょう？」のような前半と後半が対照的な問題（パラレル問題）は「～ですが、～」とする。
+# ・"question"の中でも、パラレル問題では対照的なキーワードを**強調**してください。
+# ・体言止めは避けてください。
+# ・作品名は『』（2重鍵かっこ）で囲んでください。
+# ・"question"では問題文は80文字以内にしてください。
+# ・漢字検定2級程度の語彙には後ろから()でルビを追加してください。
+# ・最初は広い情報から入り、徐々に狭い情報に絞ってください。
+# ・前半に知名度が低い情報、後半に知名度が高い情報を配置してください。
+# """
+
+# # --- ① 生成フェーズ用のプロンプト ---
+# prompt_template_generate = f"""
+# # 役割
+# あなたはプロのクイズ作家です。
+
+# # タスク
+# 以下の文章を基にして、競技クイズで使えるような本格的なクイズを1問作成してください。
+
+# # 制約条件
+# {CONSTRAINT_RULES}
+
+# # 文章
+# {{source_text}}
+# """
+
+# # --- ② 自己評価・修正フェーズ用のプロンプト ---
+# prompt_template_refine = f"""
+# # 役割
+# あなたは、AIが生成したクイズを評価し、修正する品質保証の専門家です。
+
+# # タスク
+# AIが生成した以下の「生成物」が、「制約条件」を完全に満たしているか厳密にチェックしてください。
+# もし一つでも違反があれば、すべての違反箇所を修正し、制約条件を完全に満たした**最終的なJSONオブジェクトのみを出力**してください。
+# もし違反がなければ、元の「生成物」を**そのままJSONオブジェクトとして出力**してください。
+
+# **重要：あなたの応答は、解説や挨拶を一切含んではいけません。あなたの応答は、JSONオブジェクトそのものである必要があります。**
+
+# # 制約条件
+# {CONSTRAINT_RULES}
+
+# # AIによる生成物
+# {{draft_quiz}}
+# """
+
+# 使用するモデルを選択
+model = genai.GenerativeModel('gemini-2.0-flash-lite')
+
+# カテゴリの日本語名マッピング
+CATEGORY_NAMES = {
+    "history": "歴史",
+    "science": "科学",
+    "literature": "文学",
+    "geography": "地理",
+    "sports": "スポーツ",
+    "arts": "芸術",
+    "general": "一般知識",
+}
+
+# 制約条件を独立した変数として定義
+CONSTRAINT_RULES = """
+・必ず「問題文」「正解」「別解/正誤判定基準」「解説」「出典」の要素を含めてください。
+・出力はJSON形式で、以下のキーを持つオブジェクトとしてください: "question", "answer", "Alternative Solutions/Correctness Judgment Criteria", "explanation","source"
+・"source"には以下のフィールドを含めてください：
+  - "title": ウェブページタイトルまたはトピック名
+  - "url": 参照元URL（必須）
+  - "quote": 参照元からの引用（30〜120文字程度、URL指定時は必須、カテゴリ指定時は任意）
+・問題の後半で問題の答えを一意に絞れるような情報を盛り込んでください。
+・日本語での呼び方と外来語としての呼び方の両方が存在する場合、別解として「別解/正誤判定基準」欄にその旨を記載するか、どちらか一方に限定できる問題文に改めてください。
+・文末は「～でしょう？」としてください。
+・問題文は1文で作成してください。
+・「日本で一番高い山は富士山ですが、世界で一番高い山は何でしょう？」のような前半と後半が対照的な問題（パラレル問題）は「～ですが、～」とする。
+・パラレル問題では対照的なキーワードを**強調**してください。
+・体言止めは避けてください。
+・作品名は『』（2重鍵かっこ）で囲んでください。
+・問題文は80文字以内にしてください。
+・漢字検定2級程度の語彙には後ろから()でルビを追加してください。
+・最初は広い情報から入り、徐々に狭い情報に絞ってください。
+・前半に知名度が低い情報、後半に知名度が高い情報を配置してください。
+
+【参照元制限の厳守】
+・参照元として使用できるのは以下のサイトのみです：
+  1. コトバンク（https://kotobank.jp）
+  2. 公式サイト（*.go.jp、*.ac.jp、企業の公式ドメイン）
+・ブログ、まとめサイト、SNS、Q&Aサイト（例：知恵袋、Quora等）は参照禁止です。
+・"source"の"url"には、上記の許可された参照元のURLを設定してください。
+・URLは絶対に捏造しないでください。
+・適切な参照URLを提示できない場合は、"url"フィールドに「参照URLを提示できません」と記載してください（この場合"quote"は不要）。
+"""
+
+# --- ① AIへの最終的な指示プロンプト（カテゴリベース） ---
+prompt_template = f"""
+# 役割
+あなたはプロのクイズ作家であり、JSONの専門家です。
+
+# タスク
+「{{category_name}}」のカテゴリで、競技クイズで使えるような本格的なクイズを1問作成してください。
+
+# 制約条件
+{CONSTRAINT_RULES}
+
+# 最重要ルール
+・あなたの応答は、解説や挨拶を一切含んではいけません。
+・あなたの応答は、**「制約条件」をすべて満たしたJSONオブジェクトそのもの**である必要があります。
+
+# カテゴリ
+{{category_name}}
+
+# 追加の指示
+・"source"の"title"には、クイズの題材となった具体的なトピック名を設定してください（例: 「フランス革命」「光合成」など）
+・"source"の"url"には、そのトピックに関連する信頼できる参考URLを設定してください
+  - 必ずコトバンク（https://kotobank.jp）または公式サイト（*.go.jp、*.ac.jp）のURLを使用してください
+  - ブログ、まとめサイト、SNS、Q&Aサイトは使用禁止です
+  - 適切なURLが見つからない場合は、「参照URLを提示できません」と記載してください
+・問題は{{category_name}}のカテゴリに関連する、競技クイズとして適切な難易度のものを作成してください
+"""
+
+# ----------------------------------------------------
+# ↑↑↑ プロンプトとルールの定義ここまで ↑↑↑
+# ----------------------------------------------------
+
+# ----------------------------------------------------
+# URL検証関連の関数
+# ----------------------------------------------------
+
+def load_allowed_domains():
+    """allowed_domains.json から追加許可ドメインを読み込む"""
+    config_path = Path(__file__).parent / "config" / "allowed_domains.json"
+    try:
+        if config_path.exists():
+            with open(config_path, "r", encoding="utf-8") as f:
+                config = json.load(f)
+                return config.get("additional_domains", [])
+        else:
+            print(f"[WARNING] {config_path} が見つかりません。追加ドメインなしで動作します。")
+            return []
+    except Exception as e:
+        print(f"[ERROR] allowed_domains.json の読み込みに失敗: {e}")
+        return []
+
+def extract_urls_from_text(text: str):
+    """テキストからURLを抽出する（正規表現使用）"""
+    # http:// または https:// で始まるURLを抽出
+    url_pattern = r'https?://[^\s\"\'\)\]\}]+'
+    urls = re.findall(url_pattern, text)
+    return urls
+
+def is_domain_allowed(domain: str, additional_domains: list) -> bool:
+    """ドメインが許可リストに含まれるかチェック"""
+    domain_lower = domain.lower()
+
+    # 基本許可ドメイン
+    if domain_lower == "kotobank.jp" or domain_lower.endswith(".kotobank.jp"):
+        return True
+    if domain_lower.endswith(".go.jp"):
+        return True
+    if domain_lower.endswith(".ac.jp"):
+        return True
+
+    # 追加許可ドメイン
+    for allowed in additional_domains:
+        allowed_lower = allowed.lower()
+        if domain_lower == allowed_lower or domain_lower.endswith("." + allowed_lower):
+            return True
+
+    return False
+
+def validate_urls_in_response(response_text: str):
+    """
+    レスポンステキストに含まれるURLを検証する
+    許可外URLがあれば、それらをリストで返す
+
+    ⚠️ 非推奨: validate_sources() を使用してください
+    """
+    additional_domains = load_allowed_domains()
+    urls = extract_urls_from_text(response_text)
+
+    if not urls:
+        # URLが1つも見つからない場合も違反とする
+        print("[WARNING] 生成結果にURLが含まれていません")
+        return None, ["URLが含まれていません"]
+
+    invalid_urls = []
+    for url in urls:
+        try:
+            parsed = urlparse(url)
+            domain = parsed.netloc
+            if not is_domain_allowed(domain, additional_domains):
+                invalid_urls.append(url)
+                print(f"[VIOLATION] 許可外URL検出: {url} (domain: {domain})")
+        except Exception as e:
+            print(f"[ERROR] URL解析エラー ({url}): {e}")
+            invalid_urls.append(url)
+
+    return urls, invalid_urls
+
+def validate_sources(final_json, request):
+    """
+    生成されたJSON（単問 or 複数問）のsourceフィールドを検証する
+
+    Args:
+        final_json: パース済みのJSON（dict or list）
+        request: QuizRequest オブジェクト
+
+    Returns:
+        None（検証成功時）
+
+    Raises:
+        HTTPException（検証失敗時）
+    """
+    additional_domains = load_allowed_domains()
+
+    # 単問/複数問の正規化
+    if isinstance(final_json, list):
+        quiz_list = final_json
+    elif isinstance(final_json, dict):
+        quiz_list = [final_json]
+    else:
+        raise HTTPException(
+            status_code=500,
+            detail="INVALID_JSON_STRUCTURE: 生成結果が想定外の形式です（dict or list が必要）"
+        )
+
+    # 各問題のsourceを検証
+    for idx, quiz in enumerate(quiz_list):
+        quiz_num = idx + 1
+
+        # sourceフィールドの存在確認
+        if "source" not in quiz:
+            raise HTTPException(
+                status_code=400,
+                detail=f"SOURCE_MISSING: 問題{quiz_num}にsourceフィールドがありません"
+            )
+
+        source = quiz["source"]
+
+        # source.urlの存在確認
+        if "url" not in source:
+            raise HTTPException(
+                status_code=400,
+                detail=f"SOURCE_URL_MISSING: 問題{quiz_num}のsource.urlが存在しません"
+            )
+
+        source_url = source["url"]
+
+        # --- URLモードの検証 ---
+        if request.source_type == "url":
+            # 1. source.urlが入力URLと一致するか
+            if source_url != request.source_value:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"SOURCE_URL_MISMATCH: 問題{quiz_num}のsource.url（{source_url}）が入力URL（{request.source_value}）と一致しません"
+                )
+
+            # 2. source.urlのドメインが許可リストに含まれるか
+            try:
+                parsed = urlparse(source_url)
+                domain = parsed.netloc
+                if not is_domain_allowed(domain, additional_domains):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"SOURCE_URL_DOMAIN_NOT_ALLOWED: 問題{quiz_num}のsource.url（{source_url}）のドメイン（{domain}）は許可リストに含まれていません"
+                    )
+            except Exception as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"SOURCE_URL_PARSE_ERROR: 問題{quiz_num}のsource.urlの解析に失敗しました: {str(e)}"
+                )
+
+            # 3. source.quoteが存在し、空でないか
+            if "quote" not in source:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"SOURCE_QUOTE_MISSING: URLモードでは問題{quiz_num}のsource.quoteが必須です"
+                )
+
+            quote = source["quote"].strip() if isinstance(source["quote"], str) else ""
+            if not quote:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"SOURCE_QUOTE_EMPTY: URLモードでは問題{quiz_num}のsource.quoteを空にできません"
+                )
+
+            # 4. quoteの長さチェック（30-120文字程度）
+            if len(quote) < 30:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"SOURCE_QUOTE_TOO_SHORT: 問題{quiz_num}のsource.quoteが短すぎます（{len(quote)}文字、最低30文字必要）"
+                )
+            if len(quote) > 150:
+                print(f"[WARNING] 問題{quiz_num}のsource.quoteが長い（{len(quote)}文字）ですが許可します")
+
+        # --- カテゴリモードの検証 ---
+        else:  # source_type == "category"
+            # 「参照URLを提示できません」の場合はスキップ
+            if source_url == "参照URLを提示できません":
+                print(f"[INFO] 問題{quiz_num}: カテゴリモードでURL提示なし（許可）")
+                continue
+
+            # 実際のURLの場合は許可ドメイン検証
+            if source_url.startswith(("http://", "https://")):
+                try:
+                    parsed = urlparse(source_url)
+                    domain = parsed.netloc
+                    if not is_domain_allowed(domain, additional_domains):
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"SOURCE_URL_DOMAIN_NOT_ALLOWED: 問題{quiz_num}のsource.url（{source_url}）のドメイン（{domain}）は許可リストに含まれていません"
+                        )
+                    print(f"[OK] 問題{quiz_num}: カテゴリモードのURL検証成功（{domain}）")
+                except HTTPException:
+                    raise
+                except Exception as e:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"SOURCE_URL_PARSE_ERROR: 問題{quiz_num}のsource.urlの解析に失敗しました: {str(e)}"
+                    )
+
+    print(f"[OK] source検証完了: {len(quiz_list)}問すべて検証成功")
+
+# ----------------------------------------------------
+
+def build_dynamic_prompt(category_name: str, source_type: str, source_value: Optional[str], question_count: int, fetched_content: Optional[str] = None) -> str:
+    """
+    生成パラメータに応じて動的にプロンプトを構築する
+
+    Args:
+        category_name: カテゴリ名
+        source_type: "category" または "url"
+        source_value: URL（source_type="url"の場合）
+        question_count: 生成する問題数
+        fetched_content: URLから取得したページ本文（source_type="url"の場合）
+    """
+    # 基本的な制約条件
+    base_constraints = CONSTRAINT_RULES
+
+    # 問題数に応じた出力形式指示
+    if question_count == 1:
+        output_instruction = """
+# 出力形式
+・あなたの応答は、解説や挨拶を一切含んではいけません。
+・あなたの応答は、**「制約条件」をすべて満たしたJSONオブジェクトそのもの**である必要があります。
+"""
+    else:
+        output_instruction = f"""
+# 出力形式
+・あなたの応答は、解説や挨拶を一切含んではいけません。
+・あなたの応答は、**{question_count}問のクイズを含むJSON配列**である必要があります。
+・配列の各要素は「制約条件」をすべて満たしたJSONオブジェクトである必要があります。
+・形式: [{{"question": "...", "answer": "...", ...}}, {{"question": "...", "answer": "...", ...}}, ...]
+"""
+
+    # ソースタイプに応じた指示
+    if source_type == "url" and source_value and fetched_content:
+        # URLから取得したコンテンツを含める
+        source_instruction = f"""
+# 参照元指定
+・以下のURLから取得した内容**のみ**を根拠に問題を作成してください：
+  URL: {source_value}
+
+# ページ本文
+```
+{fetched_content[:5000]}
+```
+（※長い場合は先頭5000文字まで）
+
+・上記のページ本文の内容のみを使用して問題を作成してください。
+・このURL以外の情報や、あなたの既知の知識を参照してはいけません。
+・"source"の"url"には、必ずこのURL（{source_value}）を設定してください。
+・**"source"の"quote"には、上記ページ本文から引用した30〜120文字程度のテキストを必ず設定してください**（問題の根拠となる重要な部分を抜粋）。
+"""
+    elif source_type == "url" and source_value:
+        # フォールバック: コンテンツ取得失敗時
+        source_instruction = f"""
+# 参照元指定
+・以下のURLの内容**のみ**を根拠に問題を作成してください：
+  {source_value}
+・このURL以外の情報を参照してはいけません。
+・"source"の"url"には、必ずこのURLを設定してください。
+・"source"の"quote"には、参照元からの引用を30〜120文字程度で設定してください。
+"""
+    else:
+        source_instruction = f"""
+# カテゴリ
+・「{category_name}」のカテゴリに関連する、競技クイズとして適切な難易度の問題を作成してください。
+"""
+
+    # プロンプト構築
+    prompt = f"""
+# 役割
+あなたはプロのクイズ作家であり、JSONの専門家です。
+
+# タスク
+競技クイズで使えるような本格的なクイズを作成してください。
+
+# 制約条件
+{base_constraints}
+
+{source_instruction}
+
+{output_instruction}
+
+# 追加の指示
+・"source"の"title"には、クイズの題材となった具体的なトピック名を設定してください
+・"source"の"url"には、そのトピックに関連する信頼できる参考URLを設定してください
+  - 必ずコトバンク（https://kotobank.jp）または公式サイト（*.go.jp、*.ac.jp）のURLを使用してください
+  - ブログ、まとめサイト、SNS、Q&Aサイトは使用禁止です
+  - 適切なURLが見つからない場合は、「参照URLを提示できません」と記載してください（この場合"quote"は空文字列""で構いません）
+・"source"の"quote"には、参照元からの引用文を設定してください（URL指定時は必須、カテゴリ指定時は任意）
+"""
+
+    return prompt
+
+# ----------------------------------------------------
+
+def get_web_info(url: str):
+    """URLから本文テキストとタイトルを抽出する関数"""
+    try:
+        print(f"[FETCH] '{url}' から情報を取得中...")
+
+        # User-Agentを設定してブロックを回避
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        response = requests.get(url, timeout=10, headers=headers, allow_redirects=True)
+
+        # ステータスコードとリダイレクト情報をログ
+        print(f"[FETCH] HTTP Status: {response.status_code}")
+        print(f"[FETCH] Final URL: {response.url}")
+        print(f"[FETCH] Content-Type: {response.headers.get('Content-Type', 'unknown')}")
+        print(f"[FETCH] Content-Length: {len(response.content)} bytes")
+
+        response.raise_for_status()
+
+        # エンコーディング確認
+        if response.encoding:
+            print(f"[FETCH] Encoding: {response.encoding}")
+
+        soup = BeautifulSoup(response.content, 'html.parser')
+
+        # タイトルを取得
+        title = soup.title.string if soup.title else "タイトル不明"
+        print(f"[PARSE] ページタイトル: {title}")
+
+        # 不要タグを除去
+        for tag in soup(['script', 'style', 'header', 'footer', 'nav', 'aside']):
+            tag.decompose()
+
+        body_text = soup.get_text(separator='\n', strip=True)
+
+        # テキスト長をログ
+        print(f"[PARSE] 抽出テキスト長: {len(body_text)} 文字")
+        print(f"[PARSE] テキスト先頭200文字: {body_text[:200]}...")
+
+        if not body_text or len(body_text) < 100:
+            print(f"[WARNING] 抽出テキストが短すぎます（{len(body_text)}文字）")
+            return None, None
+
+        print("[OK] 情報の取得完了！")
+        return body_text, title
+    except requests.exceptions.Timeout as e:
+        print(f"[ERROR] タイムアウト: {e}")
+        raise HTTPException(
+            status_code=504,
+            detail=f"URL_FETCH_TIMEOUT: URLの取得がタイムアウトしました（10秒以内に応答なし）: {url}"
+        )
+    except requests.exceptions.HTTPError as e:
+        status_code = e.response.status_code if e.response else 500
+        print(f"[ERROR] HTTP Error {status_code}: {e}")
+        if status_code == 403:
+            raise HTTPException(
+                status_code=403,
+                detail=f"URL_FETCH_FORBIDDEN: URLへのアクセスが拒否されました（403 Forbidden）。サイトがBot アクセスをブロックしている可能性があります: {url}"
+            )
+        elif status_code == 404:
+            raise HTTPException(
+                status_code=404,
+                detail=f"URL_NOT_FOUND: URLが見つかりませんでした（404 Not Found）: {url}"
+            )
+        elif status_code == 429:
+            raise HTTPException(
+                status_code=429,
+                detail=f"URL_RATE_LIMIT: レート制限に達しました（429 Too Many Requests）。しばらく待ってから再試行してください: {url}"
+            )
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail=f"URL_FETCH_ERROR: URLの取得に失敗しました（HTTP {status_code}）: {url}"
+            )
+    except requests.RequestException as e:
+        print(f"[ERROR] URLの取得に失敗しました: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"URL_FETCH_FAILED: URLの取得に失敗しました。ネットワークエラーまたは無効なURLの可能性があります: {str(e)}"
+        )
+    except Exception as e:
+        print(f"[ERROR] HTMLパース中にエラー: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"URL_PARSE_ERROR: ページ内容の解析に失敗しました: {str(e)}"
+        )
+    
+
+@app.post("/generate-quiz")
+async def generate_quiz(request: QuizRequest):
+    """
+    カテゴリを受け取り、Gemini API呼び出しを行ってクイズを生成する
+    オプション: URL指定、複数題生成
+    """
+    print(f"リクエスト受信: category = {request.category}, source_type = {request.source_type}, question_count = {request.question_count}")
+
+    # 1. リクエストパラメータの検証
+    if request.category not in CATEGORY_NAMES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"無効なカテゴリです。有効なカテゴリ: {', '.join(CATEGORY_NAMES.keys())}"
+        )
+
+    # 問題数の上限チェック（3-5問）
+    if request.question_count < 1 or request.question_count > 5:
+        raise HTTPException(
+            status_code=400,
+            detail="question_countは1〜5の範囲で指定してください。"
+        )
+
+    # URL指定時のバリデーション
+    if request.source_type == "url":
+        if not request.source_value:
+            raise HTTPException(
+                status_code=400,
+                detail="source_type が 'url' の場合、source_value（URL）を指定してください。"
+            )
+        # URL形式の簡易チェック
+        if not request.source_value.startswith(("http://", "https://")):
+            raise HTTPException(
+                status_code=400,
+                detail="source_value には http:// または https:// で始まる有効なURLを指定してください。"
+            )
+
+    category_name = CATEGORY_NAMES[request.category]
+    print(f"[INFO] カテゴリ: {category_name}")
+    print(f"[INFO] 生成モード: {request.source_type}, 問題数: {request.question_count}")
+
+    try:
+        # --- URL指定時のコンテンツ取得 ---
+        fetched_content = None
+        if request.source_type == "url" and request.source_value:
+            print(f"\n--- [0] URL取得フェーズ ---")
+            print(f"[INFO] URL指定モード: {request.source_value}")
+
+            # get_web_info() を呼び出してページ本文を取得
+            fetched_content, page_title = get_web_info(request.source_value)
+
+            if not fetched_content:
+                raise HTTPException(
+                    status_code=400,
+                    detail="URL_CONTENT_EMPTY: URLからコンテンツを抽出できませんでした。ページが空であるか、テキストが極端に少ない可能性があります。"
+                )
+
+            print(f"[OK] コンテンツ取得成功: タイトル='{page_title}', 本文={len(fetched_content)}文字")
+
+        # --- AI呼び出し ---
+        print("\n--- [1] 生成フェーズ ---")
+
+        # 動的プロンプト生成
+        full_prompt = build_dynamic_prompt(
+            category_name=category_name,
+            source_type=request.source_type,
+            source_value=request.source_value,
+            question_count=request.question_count,
+            fetched_content=fetched_content
+        )
+        print("[AI] クイズを生成中...")
+
+        # Gemini API呼び出し（エラーハンドリング強化）
+        try:
+            response = model.generate_content(full_prompt)
+        except google_exceptions.Unauthenticated as e:
+            print(f"[ERROR] Gemini API認証エラー: {e}")
+            raise HTTPException(
+                status_code=401,
+                detail="GEMINI_API_KEY_INVALID: APIキーが無効です。backend/.envファイルのGEMINI_API_KEYを確認してください。"
+            )
+        except google_exceptions.PermissionDenied as e:
+            print(f"[ERROR] Gemini API権限エラー: {e}")
+            raise HTTPException(
+                status_code=403,
+                detail="GEMINI_API_KEY_PERMISSION_DENIED: APIキーに必要な権限がありません。APIキーの設定を確認してください。"
+            )
+        except (google_exceptions.ResourceExhausted, google_exceptions.TooManyRequests) as e:
+            print(f"[ERROR] Gemini APIレート制限: {e}")
+            raise HTTPException(
+                status_code=429,
+                detail="GEMINI_RATE_LIMIT: Gemini APIのレート制限に達しました。しばらく待ってから再度お試しください。"
+            )
+        except (google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError) as e:
+            print(f"[ERROR] Gemini APIサービスエラー: {e}")
+            raise HTTPException(
+                status_code=503,
+                detail="GEMINI_SERVICE_UNAVAILABLE: Gemini APIが一時的に利用できません。しばらく待ってから再度お試しください。"
+            )
+        except google_exceptions.DeadlineExceeded as e:
+            print(f"[ERROR] Gemini APIタイムアウト: {e}")
+            raise HTTPException(
+                status_code=504,
+                detail="GEMINI_TIMEOUT: Gemini APIへのリクエストがタイムアウトしました。もう一度お試しください。"
+            )
+        except google_exceptions.InvalidArgument as e:
+            print(f"[ERROR] Gemini API無効な引数: {e}")
+            raise HTTPException(
+                status_code=400,
+                detail="GEMINI_INVALID_REQUEST: リクエストが不正です。URLの内容が長すぎるか、不正な形式の可能性があります。"
+            )
+        except ValueError as e:
+            # APIキーがNoneの場合など、genai.configure後に発生する可能性があるエラー
+            error_str = str(e).lower()
+            if "api" in error_str and "key" in error_str:
+                print(f"[ERROR] APIキー関連のValueError: {e}")
+                raise HTTPException(
+                    status_code=500,
+                    detail="GEMINI_API_KEY_NOT_SET: GEMINI_API_KEYが設定されていません。backend/.envファイルにAPIキーを設定してください。"
+                )
+            else:
+                print(f"[ERROR] ValueError: {e}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"GEMINI_VALUE_ERROR: Gemini API呼び出し中にエラーが発生しました: {str(e)}"
+                )
+        except Exception as e:
+            print(f"[ERROR] Gemini API予期しないエラー: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"GEMINI_UNKNOWN_ERROR: Gemini API呼び出し中に予期しないエラーが発生しました: {str(e)}"
+            )
+
+        # AIの生の応答をクリーンアップ
+        final_text = response.text.strip()
+
+        print("--- [DEBUG] AIの最終RAW応答 ---")
+        print(final_text)
+        print("---------------------------------")
+
+        # AIがJSONを```で囲んでいる場合、それを取り除く
+        if final_text.startswith("```json"):
+            final_text = final_text[7:].strip() # "```json\n" を削除
+        if final_text.startswith("```"):
+            final_text = final_text[3:].strip()
+        if final_text.endswith("```"):
+            final_text = final_text[:-3].strip()
+
+        print("[OK] 最終版が完成しました！(クリーンアップ後)")
+
+        # JSON文字列をPythonのオブジェクト（辞書 or リスト）に変換
+        final_json = json.loads(final_text)
+
+        # --- source検証フェーズ ---
+        print("\n--- [SOURCE検証] source.url/quote検証 ---")
+        validate_sources(final_json, request)
+
+        # レスポンス形式の統一
+        # 単問の場合: オブジェクトを返す（後方互換性）
+        # 複数問の場合: {"questions": [...]} 形式で返す
+        if request.question_count == 1:
+            # 単問の場合、オブジェクトをそのまま返す
+            if isinstance(final_json, list) and len(final_json) > 0:
+                # AIが配列で返した場合、最初の要素を返す
+                return final_json[0]
+            else:
+                return final_json
+        else:
+            # 複数問の場合、配列を {"questions": [...]} でラップして返す
+            if isinstance(final_json, list):
+                return {"questions": final_json}
+            else:
+                # AIがオブジェクトで返した場合（エラー対応）
+                return {"questions": [final_json]}
+
+    # エラーキャッチをより具体的にする
+    except json.JSONDecodeError as e:
+        print(f"[ERROR] JSONデコードエラー: {e}")
+        print("--- 失敗したテキスト (上記ログ参照) ---")
+        raise HTTPException(
+            status_code=500,
+            detail=f"AI_INVALID_JSON: AIが有効なJSONを返しませんでした。もう一度お試しください。"
+        )
+    except HTTPException:
+        # HTTPExceptionはそのまま再スロー（上記で投げたエラー）
+        raise
+    except UnicodeEncodeError as e:
+        # Windows console encoding issue - log safely
+        error_msg = f"UnicodeEncodeError: codec={e.encoding}, object={e.object[:50]}, start={e.start}, end={e.end}"
+        print(f"[ERROR] エンコーディングエラー（無視して処理継続）: {error_msg}")
+        # This is just a logging issue, not a functional problem - don't raise
+        raise HTTPException(
+            status_code=500,
+            detail="ENCODING_ERROR: コンソール出力時のエンコーディングエラーが発生しました（生成自体は成功している可能性があります）"
+        )
+    except Exception as e:
+        error_str = str(e)
+        # Avoid printing strings that might contain non-cp932 characters
+        print(f"[ERROR] API処理中にエラーが発生しました: {error_str[:100]}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"QUIZ_GENERATION_ERROR: クイズ生成中にエラーが発生しました: {error_str}"
+        )
+
+# --- メインの処理 ---
+# 1. URLから本文とタイトルを取得
+# source_text, source_title = get_web_info(target_url)
+
+# if source_text:
+#     # --- ① 生成フェーズ ---
+#     print("\n--- ① 生成フェーズ ---")
+#     prompt_generate = prompt_template_generate.format(source_text=source_text)
+#     print("🤖 AIにクイズの初稿を生成させています...")
+#     response_generate = model.generate_content(prompt_generate)
+#     first_draft_text = response_generate.text
+#     print("✅ 初稿が完成しました！")
+#     print(first_draft_text)
+
+#     # --- ② 自己評価・修正フェーズ ---
+#     print("\n--- ② 自己評価・修正フェーズ ---")
+#     prompt_refine = prompt_template_refine.format(draft_quiz=first_draft_text)
+#     print("🧐 AIが生成結果を自己評価し、必要なら修正します...")
+#     response_refine = model.generate_content(prompt_refine)
+    
+#     # 最終的な出力を整形
+#     final_text = response_refine.text.strip().replace("```json\n", "").replace("\n```", "")
+    
+#     print("✅ 最終版が完成しました！")
+#     print("\n--- 最終出力結果 ---")
+    
+#     # JSONとしてきれいに整形して表示
+#     try:
+#         final_json = json.loads(final_text)
+#         print(json.dumps(final_json, indent=2, ensure_ascii=False))
+#     except json.JSONDecodeError:
+#         print("エラー: 最終出力が有効なJSONではありません。")
+#         print(final_text)
+# APIエンドポイントの作成
+# ----------------------------------------------------
+# 
+
+    # # AIの生の応答をクリーンアップ
+    #     final_text = response_refine.text.strip()
+        
+    #     # (!!!) デバッグのために、AIの生の応答をログに出力 (!!!)
+    #     print("--- 🤖 AIの最終RAW応答 (デバッグ用) ---")
+    #     print(final_text)
+    #     print("---------------------------------")
+
+    #     # AIがJSONを```で囲んでいる場合、それを取り除く
+    #     if final_text.startswith("```json"):
+    #         final_text = final_text[7:].strip() # "```json\n" を削除
+    #     if final_text.startswith("```"):
+    #         final_text = final_text[3:].strip()
+    #     if final_text.endswith("```"):
+    #         final_text = final_text[:-3].strip()
+        
+    #     print("✅ 最終版が完成しました！(クリーンアップ後)")
+        
+    #     # JSON文字列をPythonの辞書に変換して返す
+    #     final_json = json.loads(final_text)
+    #     return final_json
+        
+    # # エラーキャッチをより具体的にする
+    # except json.JSONDecodeError as e:
+    #     print(f"❌ JSONデコードエラー: {e}")
+    #     print("--- 失敗したテキスト (上記ログ参照) ---")
+    #     raise HTTPException(status_code=500, detail=f"AIが有効なJSONを返しませんでした。RAW: {final_text}")
+    # except Exception as e:
+    #     print(f"❌ API処理中にエラーが発生しました: {e}")
+    #     raise HTTPException(status_code=500, detail="AIによるクイズ生成中にエラーが発生しました。")

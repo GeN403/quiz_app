@@ -3,7 +3,7 @@ APIルータ統合
 """
 
 from fastapi import APIRouter
-from app.api.routes import resolve_source, generate_quiz
+from app.api.routes import resolve_source, generate_quiz, suggest_source
 from app.schemas.requests import QuizRequest
 
 
@@ -21,6 +21,9 @@ def create_api_router(gemini_model) -> APIRouter:
 
     # /resolve-source エンドポイントを追加
     api_router.include_router(resolve_source.router, tags=["source"])
+
+    # /suggest-source エンドポイントを追加
+    api_router.include_router(suggest_source.router, tags=["source"])
 
     # /generate-quiz エンドポイントを追加（modelを注入）
     # ※ generate_quiz.routerは直接includeできないため、個別に登録

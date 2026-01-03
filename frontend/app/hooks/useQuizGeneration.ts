@@ -77,6 +77,43 @@ export function useQuizGeneration() {
     }
   };
 
+  // URL未入力時にジャンルからURLを補完する関数
+  const ensureSourceUrl = async (inputUrl: string, selectedGenre: string): Promise<string> => {
+    // URL入力済みの場合はそのまま返す
+    if (inputUrl && inputUrl.trim()) {
+      console.log("[URL補完] URL入力済み、補完不要");
+      return inputUrl.trim();
+    }
+
+    // URL未入力の場合、ジャンルからURL候補を取得
+    console.log("[URL補完] URL未入力、ジャンルから補完:", selectedGenre);
+
+    try {
+      const res = await fetch(`/api/suggest-source?genre=${encodeURIComponent(selectedGenre)}&k=1`);
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.detail || `HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+
+      if (!data.urls || data.urls.length === 0) {
+        throw new Error(`ジャンル「${selectedGenre}」にはURLが登録されていません`);
+      }
+
+      const suggestedUrl = data.urls[0];
+      console.log("[URL補完] 補完されたURL:", suggestedUrl);
+
+      return suggestedUrl;
+    } catch (error: any) {
+      console.error("[URL補完] エラー:", error);
+      throw new Error(
+        error.message || `ジャンル「${selectedGenre}」からのURL取得に失敗しました`
+      );
+    }
+  };
+
   // クイズ生成
   const handleGenerate = async () => {
     // 既にローディング中の場合は何もしない（二重送信防止）
@@ -100,17 +137,63 @@ export function useQuizGeneration() {
     setJudgmentResult(null); // 判定結果をリセット
 
     try {
-      // URLモードのみサポート: resolvedSource が必須
-      if (!resolvedSource) {
-        setError("先に「本文を取得」ボタンでURLを解決してください。");
+      // カテゴリから日本語ジャンル名を取得
+      const selectedGenre = CATEGORIES.find(cat => cat.value === category)?.label || "";
+      if (!selectedGenre) {
+        setError("無効なカテゴリが選択されています。");
         setIsLoading(false);
         return;
       }
 
+      // URL未入力の場合、ジャンルからURLを補完
+      let effectiveUrl = sourceUrl;
+      if (!sourceUrl || !sourceUrl.trim()) {
+        console.log("[クイズ生成] URL未入力、補完を試みます...");
+        try {
+          effectiveUrl = await ensureSourceUrl(sourceUrl, selectedGenre);
+          // UI上のsourceUrlに反映（ユーザーに見えるようにする）
+          setSourceUrl(effectiveUrl);
+          console.log("[クイズ生成] URL補完完了:", effectiveUrl);
+        } catch (error: any) {
+          setError(error.message || "URLの補完に失敗しました。");
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      // URLが確定したので、本文を取得
+      console.log("[クイズ生成] URL確定:", effectiveUrl);
+
+      // resolvedSourceが未設定、または異なるURLの場合は、本文を取得
+      if (!resolvedSource || resolvedSource.url !== effectiveUrl) {
+        console.log("[クイズ生成] 本文を取得中...");
+        try {
+          const data = await fetchResolveSource(effectiveUrl);
+          setResolvedSource(data);
+
+          // 最初のquoteをデフォルト選択
+          if (data.quotes && data.quotes.length > 0) {
+            setSelectedQuote(data.quotes[0]);
+          }
+        } catch (error: any) {
+          setError(error.message || "URL本文の取得に失敗しました。");
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      // resolvedSourceが未設定の場合（通常は上のロジックで設定されているはず）
+      if (!resolvedSource) {
+        setError("URL本文の取得に失敗しました。内部エラーです。");
+        setIsLoading(false);
+        return;
+      }
+
+      // クイズ生成APIを呼び出す
       const data = await fetchGenerateQuiz({
         category,
         questionCount,
-        sourceUrl: resolvedSource.url,
+        sourceUrl: effectiveUrl,  // 補完されたURLまたは入力されたURLを使用
         selectedQuote,
       });
 

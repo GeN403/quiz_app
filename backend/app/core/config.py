@@ -2,13 +2,19 @@
 アプリケーション設定
 """
 
-# カテゴリの日本語名マッピング
+# カテゴリの日本語名マッピング（13ジャンル）
 CATEGORY_NAMES = {
-    "history": "歴史",
-    "science": "科学",
+    "natural_science": "自然科学",
     "literature": "文学",
+    "philosophy": "思想",
+    "language": "言葉",
+    "history": "歴史",
     "geography": "地理",
-    "sports": "スポーツ",
+    "civics": "公民",
     "arts": "芸術",
-    "general": "一般知識",
+    "blue": "青",
+    "lifestyle": "生活",
+    "sports": "スポーツ",
+    "entertainment": "芸能",
+    "non_section": "ノンセクション",
 }

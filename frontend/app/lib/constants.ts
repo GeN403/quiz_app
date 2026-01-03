@@ -2,15 +2,21 @@
  * アプリケーション定数
  */
 
-// カテゴリの定義
+// カテゴリの定義（13ジャンル）
 export const CATEGORIES = [
-  { value: "history", label: "歴史" },
-  { value: "science", label: "科学" },
+  { value: "natural_science", label: "自然科学" },
   { value: "literature", label: "文学" },
+  { value: "philosophy", label: "思想" },
+  { value: "language", label: "言葉" },
+  { value: "history", label: "歴史" },
   { value: "geography", label: "地理" },
-  { value: "sports", label: "スポーツ" },
+  { value: "civics", label: "公民" },
   { value: "arts", label: "芸術" },
-  { value: "general", label: "一般知識" },
+  { value: "blue", label: "青" },
+  { value: "lifestyle", label: "生活" },
+  { value: "sports", label: "スポーツ" },
+  { value: "entertainment", label: "芸能" },
+  { value: "non_section", label: "ノンセクション" },
 ] as const;
 
 // LocalStorageのキー名
