@@ -6,12 +6,13 @@ from fastapi import APIRouter, HTTPException
 from pydantic import ValidationError
 from app.schemas.requests import QuizRequest
 from app.core.config import CATEGORY_NAMES
+from app.core.resolve_config import ResolveConfig
 from app.core.domain_validator import validate_url_domain
 from app.core.prompt_builder import build_prompt_url_mode
 from app.core.source_validator import verify_source_fields
 from app.clients.gemini_client import call_llm_with_retry, parse_json_with_retry
 from services.source_resolver import SourceResolver
-from models.quiz import QuizData, QuizListResponse
+from models.quiz import QuizData, QuizListResponse, ResolvedConfigData
 import google.generativeai as genai
 
 
@@ -30,8 +31,42 @@ async def generate_quiz(request: QuizRequest, model):
     - 重複キー検出
     - エラーは500ではなく502/400で返す
     """
+    # --- 新フィールドのデフォルト適用と genre 解決（Req 2.1〜2.5）---
+    if request.resolve_seed is not None:
+        # resolve_seed 指定時: ResolveConfig でランダム解決（未指定フィールドのみ）
+        rc = ResolveConfig(request.resolve_seed)
+        resolved_difficulty = rc.resolve_difficulty(request.difficulty)
+        resolved_length = rc.resolve_length(request.length)
+        resolved_genre = rc.resolve_genre(request.genre)
+
+        randomly_resolved = []
+        if request.difficulty is None:
+            randomly_resolved.append(f"difficulty={resolved_difficulty}")
+        if request.length is None:
+            randomly_resolved.append(f"length={resolved_length}")
+        if request.genre is None:
+            randomly_resolved.append(f"genre={resolved_genre}")
+        explicitly_set = []
+        if request.difficulty is not None:
+            explicitly_set.append("difficulty")
+        if request.length is not None:
+            explicitly_set.append("length")
+        if request.genre is not None:
+            explicitly_set.append("genre")
+        print(f"[RESOLVE_CONFIG] seed={request.resolve_seed}")
+        print(f"[RESOLVE_CONFIG] randomly resolved: {', '.join(randomly_resolved) or 'none'}")
+        print(f"[RESOLVE_CONFIG] explicitly set by user: {', '.join(explicitly_set) or 'none'}")
+    else:
+        # resolve_seed 未指定時: 既存の固定デフォルト（後方互換）
+        resolved_difficulty = request.difficulty or "normal"
+        resolved_length = request.length or "medium"
+        resolved_genre = request.genre if request.genre is not None else CATEGORY_NAMES.get(request.category, request.category)
+
+    resolved_topic = request.topic
+
     print(f"\n{'='*60}")
     print(f"[REQUEST] category={request.category}, source_type={request.source_type}, question_count={request.question_count}")
+    print(f"[REQUEST] difficulty={resolved_difficulty}, length={resolved_length}, genre={resolved_genre}, topic={resolved_topic}")
     print(f"{'='*60}\n")
 
     # 1. リクエストパラメータの検証
@@ -75,7 +110,7 @@ async def generate_quiz(request: QuizRequest, model):
             detail="source_type は 'url' である必要があります。"
         )
 
-    category_name = CATEGORY_NAMES[request.category]
+    category_name = resolved_genre
 
     try:
         # --- URLモード（唯一サポートされるモード） ---
@@ -117,7 +152,10 @@ async def generate_quiz(request: QuizRequest, model):
             title=selected_title,
             text_excerpt=source_text,
             quotes=quote_candidates,
-            question_count=request.question_count
+            question_count=request.question_count,
+            difficulty=resolved_difficulty,
+            length_option=resolved_length,
+            topic=resolved_topic,
         )
 
         # --- LLM呼び出し + JSONパース（リトライあり） ---
@@ -212,6 +250,15 @@ async def generate_quiz(request: QuizRequest, model):
             )
 
         print(f"[PYDANTIC VALIDATION] Success\n")
+
+        # --- resolve_seed 指定時: resolved_config を result に付与（Req 6.1〜6.3）---
+        if request.resolve_seed is not None:
+            result["resolved_config"] = ResolvedConfigData(
+                seed=request.resolve_seed,
+                difficulty=resolved_difficulty,
+                length=resolved_length,
+                genre=resolved_genre,
+            ).model_dump()
 
         print(f"{'='*60}")
         print(f"[SUCCESS] Quiz generation completed")

@@ -208,7 +208,7 @@ class TestQuizAgentGraph:
 
     @patch("app.agent.nodes.ChatGoogleGenerativeAI")
     @patch("app.agent.nodes.SourceResolver")
-    def test_verify_max_retries_returns_error(self, mock_sr_class, mock_llm_class):
+    def test_verify_max_retries_ends_with_unknown_outcome(self, mock_sr_class, mock_llm_class):
         from app.agent.graph import create_quiz_agent_graph
 
         mock_resolver = MagicMock()
@@ -246,5 +246,9 @@ class TestQuizAgentGraph:
         graph = create_quiz_agent_graph("test-key")
         final_state = graph.invoke(make_initial_state())
 
-        assert final_state.get("error_code") == "VERIFICATION_MAX_RETRIES_EXCEEDED"
-        assert final_state.get("error_status") == 500
+        assert final_state.get("error_code") is None
+        assert final_state.get("verification_outcome", {}).get("verdict") == "unknown"
+        assert final_state.get("termination_reason_code") in {
+            "MAX_VERIFICATION_ATTEMPTS_REACHED",
+            "NO_CHANGE_LIMIT_REACHED",
+        }

@@ -170,6 +170,21 @@ class TestHappyPath:
         )
         assert "application/json" in response.headers.get("content-type", "")
 
+    def test_response_contains_verification_block(self, mocked_client):
+        response = mocked_client.post(
+            "/generate-quiz-agent",
+            json={
+                "category": "science",
+                "question_count": 1,
+                "source_type": "url",
+                "source_value": "https://example.com",
+            },
+        )
+        body = response.json()
+        assert "verification" in body
+        assert "attempts" in body["verification"]
+        assert body["verification"]["verdict"] == "pass"
+
 
 class TestErrorCases:
     def test_question_count_2_returns_400_invalid_question_count(self, mocked_client):
@@ -221,6 +236,59 @@ class TestErrorCases:
         )
         assert response.status_code == 400
         assert response.json() == {"detail": "INVALID_INPUT"}
+
+    def test_business_uncertainty_returns_200_with_partial_status(self):
+        with (
+            patch("app.agent.nodes.SourceResolver") as mock_sr_class,
+            patch("app.agent.nodes.ChatGoogleGenerativeAI") as mock_llm_class,
+        ):
+            mock_resolver = MagicMock()
+            mock_resolver.fetch_and_parse.return_value = {
+                "url": "https://example.com",
+                "title": "Server Title",
+                "text": "Sample text content for quiz generation",
+                "quotes": ["Server quote"],
+            }
+            mock_resolver.verify_quote.return_value = True
+            mock_sr_class.return_value = mock_resolver
+
+            quiz_without_policy = json.dumps(
+                {
+                    "question": "What is the capital of France?",
+                    "answer": "Paris",
+                    "Alternative Solutions/Correctness Judgment Criteria": "",
+                    "explanation": "Paris is the capital city of France.",
+                    "source": {
+                        "title": "LLM Generated Title (overwritten by server)",
+                        "url": "https://llm-generated-url.com",
+                        "quote": "LLM generated quote",
+                    },
+                }
+            )
+            mock_llm = MagicMock()
+            mock_llm.invoke.side_effect = [
+                MagicMock(text="capital cities"),
+                MagicMock(content=quiz_without_policy),
+                MagicMock(content=json.dumps([{"text": "Paris is the capital city of France."}])),
+                MagicMock(content=json.dumps({"quote": "Paris is the capital city of France."})),
+                MagicMock(content=json.dumps({"verdict": "pass", "reason": "Grounded in evidence."})),
+            ]
+            mock_llm_class.return_value = mock_llm
+
+            app = create_test_app()
+            client = TestClient(app)
+
+            response = client.post(
+                "/generate-quiz-agent",
+                json={
+                    "category": "science",
+                    "question_count": 1,
+                    "source_type": "url",
+                    "source_value": "https://example.com",
+                },
+            )
+            assert response.status_code == 200
+            assert response.json()["status"] == "partial"
 
     def test_missing_api_key_returns_500(self):
         app = create_test_app(api_key=None)
@@ -384,7 +452,7 @@ class TestVerificationLoop:
             body = response.json()
             assert "question" in body
 
-    def test_exceeding_max_retries_returns_500(self):
+    def test_exceeding_max_retries_returns_unknown_200(self):
         with (
             patch("app.agent.nodes.SourceResolver") as mock_sr_class,
             patch("app.agent.nodes.ChatGoogleGenerativeAI") as mock_llm_class,
@@ -438,5 +506,10 @@ class TestVerificationLoop:
                 },
             )
 
-            assert response.status_code == 500
-            assert response.json() == {"detail": "VERIFICATION_MAX_RETRIES_EXCEEDED"}
+            assert response.status_code == 200
+            body = response.json()
+            assert body["verification"]["verdict"] == "unknown"
+            assert body["verification"]["termination_reason"]["code"] in {
+                "MAX_VERIFICATION_ATTEMPTS_REACHED",
+                "NO_CHANGE_LIMIT_REACHED",
+            }

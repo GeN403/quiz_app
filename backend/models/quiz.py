@@ -65,6 +65,14 @@ class QuizData(BaseModel):
         extra = "forbid"
 
 
+class ResolvedConfigData(BaseModel):
+    """resolve_seed 指定時にレスポンスへ付与する解決済み設定データ"""
+    seed: int
+    difficulty: str
+    length: str
+    genre: str
+
+
 class QuizListResponse(BaseModel):
     """複数問のクイズを返すレスポンス"""
     questions: List[QuizData] = Field(..., description="クイズのリスト")
