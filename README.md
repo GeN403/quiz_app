@@ -1000,3 +1000,41 @@ uvicorn main:app --reload
 ## 陶 Author
 **GeN403**
 GitHub: [https://github.com/GeN403](https://github.com/GeN403)
+
+---
+
+## 最新のローカル起動手順（実動確認済み）
+
+以下は Docker を使わずに、Windows ローカルで安定して起動する手順です。
+
+### 1. バックエンド起動（`backend/venv` を使用）
+
+```powershell
+cd backend
+.\venv\Scripts\Activate.ps1
+uvicorn app.main:app --reload --port 8000
+```
+
+- API Docs: `http://127.0.0.1:8000/docs`
+- 注意: `.venv` と `backend/venv` が混在している場合は、`backend/venv` を優先してください。
+
+### 2. フロントエンド起動（`frontend` 配下で実行）
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+- フロントURL: `http://localhost:3000`
+- 注意: `quiz_app` ルートで `npm run dev` を実行すると、`pages/app directory` エラーになる場合があります。
+
+### 3. フロント→バックエンド接続先（ローカル）
+
+`frontend/.env.local` に以下を設定してください。
+
+```env
+BACKEND_INTERNAL_URL=http://127.0.0.1:8000
+```
+
+- 未設定時のデフォルトも `http://127.0.0.1:8000` ですが、明示設定を推奨します。
