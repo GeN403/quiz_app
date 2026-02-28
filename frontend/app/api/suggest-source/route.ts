@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 /**
  * URL候補提案プロキシAPI
  * ブラウザ -> Next.js (/api/suggest-source)
- *          -> FastAPI (http://backend:8000/suggest-source)
+ *          -> FastAPI (http://127.0.0.1:8000/suggest-source)
  */
 export async function GET(request: NextRequest) {
   try {
@@ -11,6 +11,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const genre = searchParams.get('genre');
     const k = searchParams.get('k') || '3';
+    const topic = searchParams.get('topic');
 
     if (!genre) {
       return NextResponse.json(
@@ -20,12 +21,19 @@ export async function GET(request: NextRequest) {
     }
 
     // バックエンドのURL
-    const backendUrl = process.env.BACKEND_INTERNAL_URL || 'http://backend:8000';
-    const targetUrl = `${backendUrl}/suggest-source?genre=${encodeURIComponent(genre)}&k=${k}`;
+    const backendUrl = process.env.BACKEND_INTERNAL_URL || 'http://127.0.0.1:8000';
+    const params = new URLSearchParams({
+      genre,
+      k,
+    });
+    if (topic && topic.trim()) {
+      params.set('topic', topic.trim());
+    }
+    const targetUrl = `${backendUrl}/suggest-source?${params.toString()}`;
 
     console.log('[PROXY] /api/suggest-source called');
     console.log('[PROXY] Backend URL:', targetUrl);
-    console.log('[PROXY] genre:', genre, 'k:', k);
+    console.log('[PROXY] genre:', genre, 'k:', k, 'topic:', topic);
 
     // バックエンドに転送（タイムアウト10秒）
     const backendResponse = await fetch(targetUrl, {

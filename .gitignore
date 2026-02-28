@@ -71,3 +71,5 @@ backend/project/models/
 
 /.claude/
 /backend/project/
+.kiro
+.codex
