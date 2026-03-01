@@ -2,9 +2,26 @@
 APIルータ統合
 """
 
+from typing import Optional
+
 from fastapi import APIRouter
 from app.api.routes import resolve_source, generate_quiz, suggest_source
 from app.schemas.requests import QuizRequest
+
+
+def create_agent_router(gemini_api_key: Optional[str] = None) -> APIRouter:
+    """
+    LangGraph エージェントルーターを生成する。
+    既存の create_api_router とは独立した新規関数。
+
+    Args:
+        gemini_api_key: Gemini API キー
+
+    Returns:
+        /generate-quiz-agent と /health を登録した APIRouter
+    """
+    from app.api.routes.generate_quiz_agent import create_generate_quiz_agent_router
+    return create_generate_quiz_agent_router(gemini_api_key)
 
 
 def create_api_router(gemini_model) -> APIRouter:

@@ -14,8 +14,9 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  FormHelperText,
 } from "@mui/material";
-import { CATEGORIES, MAX_ANSWER_LENGTH } from "./lib/constants";
+import { CATEGORIES, MAX_ANSWER_LENGTH, TOPIC_MAX_LENGTH } from "./lib/constants";
 import { useQuizGeneration } from "./hooks/useQuizGeneration";
 
 export default function Home() {
@@ -26,6 +27,15 @@ export default function Home() {
     setSourceUrl,
     questionCount,
     setQuestionCount,
+    difficulty,
+    setDifficulty,
+    length,
+    setLength,
+    genre,
+    setGenre,
+    topic,
+    setTopic,
+    fieldErrors,
     quiz,
     questions,
     currentQuestionIndex,
@@ -109,12 +119,12 @@ export default function Home() {
 
           {/* URL指定 */}
           <TextField
-            label="URL指定（必須）"
+            label="URL指定（任意）"
             placeholder="https://kotobank.jp/..."
             value={sourceUrl}
             onChange={(e) => setSourceUrl(e.target.value)}
             disabled={isLoading}
-            helperText="URLを指定してください（コトバンク、*.go.jp、*.ac.jp のみ許可）"
+            helperText="未入力の場合、選択したジャンルから参照URLを自動選択します（コトバンク、*.go.jp、*.ac.jp のみ許可）"
             fullWidth
           />
 
@@ -158,6 +168,87 @@ export default function Home() {
             inputProps={{ min: 1, max: 5 }}
             helperText="1〜5問まで指定可能"
             sx={{ width: "200px" }}
+          />
+
+          {/* 難易度セレクタ（Approach B: 未指定選択肢あり） */}
+          <FormControl fullWidth error={Boolean(fieldErrors.difficulty)}>
+            <InputLabel id="difficulty-select-label">難易度（任意）</InputLabel>
+            <Select
+              labelId="difficulty-select-label"
+              id="difficulty-select"
+              value={difficulty}
+              label="難易度（任意）"
+              onChange={(e) => setDifficulty(e.target.value)}
+              disabled={isLoading}
+            >
+              <MenuItem value="">未指定</MenuItem>
+              <MenuItem value="easy">かんたん</MenuItem>
+              <MenuItem value="normal">ふつう</MenuItem>
+              <MenuItem value="hard">むずかしい</MenuItem>
+            </Select>
+            {fieldErrors.difficulty && (
+              <FormHelperText>{fieldErrors.difficulty}</FormHelperText>
+            )}
+          </FormControl>
+
+          {/* 問題文の長さセレクタ（Approach B: 未指定選択肢あり） */}
+          <FormControl fullWidth error={Boolean(fieldErrors.length)}>
+            <InputLabel id="length-select-label">問題文の長さ（任意）</InputLabel>
+            <Select
+              labelId="length-select-label"
+              id="length-select"
+              value={length}
+              label="問題文の長さ（任意）"
+              onChange={(e) => setLength(e.target.value)}
+              disabled={isLoading}
+            >
+              <MenuItem value="">未指定</MenuItem>
+              <MenuItem value="short">短い（40文字以内）</MenuItem>
+              <MenuItem value="medium">ふつう（80文字以内）</MenuItem>
+              <MenuItem value="long">長い（150文字以内）</MenuItem>
+            </Select>
+            {fieldErrors.length && (
+              <FormHelperText>{fieldErrors.length}</FormHelperText>
+            )}
+          </FormControl>
+
+          {/* ジャンルセレクタ */}
+          <FormControl fullWidth error={Boolean(fieldErrors.genre)}>
+            <InputLabel id="genre-select-label">ジャンル（任意）</InputLabel>
+            <Select
+              labelId="genre-select-label"
+              id="genre-select"
+              value={genre}
+              label="ジャンル（任意）"
+              onChange={(e) => setGenre(e.target.value)}
+              disabled={isLoading}
+            >
+              <MenuItem value="">未指定</MenuItem>
+              {CATEGORIES.map((cat) => (
+                <MenuItem key={cat.value} value={cat.label}>
+                  {cat.label}
+                </MenuItem>
+              ))}
+            </Select>
+            {fieldErrors.genre && (
+              <FormHelperText>{fieldErrors.genre}</FormHelperText>
+            )}
+          </FormControl>
+
+          {/* トピック入力（自由記述） */}
+          <TextField
+            label="トピック（任意）"
+            placeholder="例: 富士山、相対性理論（本文内の情報に限定して出題されます）"
+            value={topic}
+            onChange={(e) => setTopic(e.target.value)}
+            disabled={isLoading}
+            error={Boolean(fieldErrors.topic)}
+            helperText={
+              fieldErrors.topic
+                ? fieldErrors.topic
+                : `${topic.trim().length}/${TOPIC_MAX_LENGTH}文字`
+            }
+            fullWidth
           />
         </Box>
 

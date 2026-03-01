@@ -58,9 +58,10 @@ frontend/node_modules/
 backend/.env
 
 # 仮想環境 (Virtual Environments)
-/venv/           # ルート直下の仮想環境
-/.venv/          # ルート直下の仮想環境（dotfile形式）
-/backend/venv/   # バックエンドの仮想環境
+/venv/
+/.venv/
+/backend/venv/
+backend/venv/
 # FAISS（ベクトルストア）のインデックス
 # (data/ から自動生成されるためリポジトリに含めない)
 backend/project/faiss_index/
@@ -71,3 +72,26 @@ backend/project/models/
 
 /.claude/
 /backend/project/
+.kiro
+.codex
+
+# RAG実験・ノートブック
+backend/notebooks/
+backend/project/
+
+# 使い捨てスクリプト
+backend/scripts/
+scripts/
+
+# バックアップ・一時ファイル
+*.backup
+*.old
+*.bak
+*.tmp
+
+# pytest キャッシュ
+.pytest_cache/
+**/.pytest_cache/
+
+# BFG Repo-Cleaner レポート
+*.git.bfg-report/

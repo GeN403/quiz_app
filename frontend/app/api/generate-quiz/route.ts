@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
  * ブラウザからの /api/generate-quiz リクエストを backend コンテナに転送
  *
  * ブラウザ -> Next.js (localhost:3000/api/generate-quiz)
- *          -> FastAPI (http://backend:8000/generate-quiz) ← コンテナ間通信
+ *          -> FastAPI (http://127.0.0.1:8000/generate-quiz)
  */
 export async function POST(request: NextRequest) {
   try {
@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
 
     // バックエンドのURL (コンテナ内部用、NEXT_PUBLIC_ をつけない)
-    const backendUrl = process.env.BACKEND_INTERNAL_URL || 'http://backend:8000';
+    const backendUrl = process.env.BACKEND_INTERNAL_URL || 'http://127.0.0.1:8000';
     const targetUrl = `${backendUrl}/generate-quiz`;
 
     // バックエンドに転送（タイムアウト60秒：LLM呼び出しに時間がかかる場合がある）
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
       {
         error: 'Failed to proxy request to backend',
         message: error instanceof Error ? error.message : 'Unknown error',
-        hint: 'Check if backend container is running and accessible at http://backend:8000'
+        hint: 'Check if backend is running and accessible at http://127.0.0.1:8000'
       },
       { status: 502 }
     );

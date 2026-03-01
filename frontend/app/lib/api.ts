@@ -3,6 +3,24 @@
  */
 
 import { QuizData, ResolvedSource } from "./types";
+import { DIFFICULTY_OPTIONS, LENGTH_OPTIONS } from "./constants";
+
+export type DifficultyOption = typeof DIFFICULTY_OPTIONS[number];
+export type LengthOption = typeof LENGTH_OPTIONS[number];
+
+export interface GenerateQuizOptionalFields {
+  difficulty?: string;
+  length?: string;
+  genre?: string;
+  topic?: string;
+}
+
+export interface GenerateQuizFieldErrors {
+  difficulty?: string;
+  length?: string;
+  genre?: string;
+  topic?: string;
+}
 
 /**
  * URL本文取得API呼び出し
@@ -41,14 +59,20 @@ export async function fetchGenerateQuiz(params: {
   questionCount: number;
   sourceUrl: string;
   selectedQuote: string;
+  difficulty?: DifficultyOption;
+  length?: LengthOption;
+  genre?: string;
+  topic?: string;
 }): Promise<QuizData | { questions: QuizData[] }> {
-  const requestBody: any = {
+  const requestBody: Record<string, unknown> = {
     category: params.category,
     question_count: params.questionCount,
     source_type: "url",
     source_value: params.sourceUrl,
     selected_quote: params.selectedQuote,
   };
+
+  Object.assign(requestBody, buildOptionalGeneratePayload(params));
 
   // タイムアウト設定（30秒）
   const controller = new AbortController();
@@ -159,3 +183,22 @@ export async function fetchGenerateQuiz(params: {
     }
   }
 }
+
+export function buildOptionalGeneratePayload(
+  fields: GenerateQuizOptionalFields
+): GenerateQuizOptionalFields {
+  const payload: GenerateQuizOptionalFields = {};
+  const difficulty = fields.difficulty?.trim();
+  const length = fields.length?.trim();
+  const genre = fields.genre?.trim();
+  const topic = fields.topic?.trim();
+
+  if (difficulty) payload.difficulty = difficulty;
+  if (length) payload.length = length;
+  if (genre) payload.genre = genre;
+  if (topic) payload.topic = topic;
+
+  return payload;
+}
+
+export const buildGeneratePayload = buildOptionalGeneratePayload;

@@ -3,14 +3,14 @@ import { NextRequest, NextResponse } from 'next/server';
 /**
  * URL本文取得プロキシAPI
  * ブラウザ -> Next.js (/api/resolve-source)
- *          -> FastAPI (http://backend:8000/resolve-source)
+ *          -> FastAPI (http://127.0.0.1:8000/resolve-source)
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
     // バックエンドのURL
-    const backendUrl = process.env.BACKEND_INTERNAL_URL || 'http://backend:8000';
+    const backendUrl = process.env.BACKEND_INTERNAL_URL || 'http://127.0.0.1:8000';
     const targetUrl = `${backendUrl}/resolve-source`;
 
     console.log('[PROXY] /api/resolve-source called');

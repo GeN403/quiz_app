@@ -19,6 +19,10 @@ export const CATEGORIES = [
   { value: "non_section", label: "ノンセクション" },
 ] as const;
 
+export const DIFFICULTY_OPTIONS = ["easy", "normal", "hard"] as const;
+export const LENGTH_OPTIONS = ["short", "medium", "long"] as const;
+export const TOPIC_MAX_LENGTH = 60;
+
 // LocalStorageのキー名
 export const HISTORY_STORAGE_KEY = "quiz_app_history";
 
