@@ -42,8 +42,8 @@ def create_test_app(api_key="test-api-key"):
 @pytest.fixture
 def mocked_client():
     with (
-        patch("app.agent.nodes.SourceResolver") as mock_sr_class,
-        patch("app.agent.nodes.ChatGoogleGenerativeAI") as mock_llm_class,
+        patch("app.agent.nodes.fetch_source.SourceResolver") as mock_sr_class,
+        patch("app.agent.adapters.gemini_llm.ChatGoogleGenerativeAI") as mock_llm_class,
     ):
         mock_resolver = MagicMock()
         mock_resolver.fetch_and_parse.return_value = {
@@ -239,8 +239,8 @@ class TestErrorCases:
 
     def test_business_uncertainty_returns_200_with_partial_status(self):
         with (
-            patch("app.agent.nodes.SourceResolver") as mock_sr_class,
-            patch("app.agent.nodes.ChatGoogleGenerativeAI") as mock_llm_class,
+            patch("app.agent.nodes.fetch_source.SourceResolver") as mock_sr_class,
+            patch("app.agent.adapters.gemini_llm.ChatGoogleGenerativeAI") as mock_llm_class,
         ):
             mock_resolver = MagicMock()
             mock_resolver.fetch_and_parse.return_value = {
@@ -351,7 +351,7 @@ class TestRegression:
         mock_model = MagicMock()
         api_router = create_api_router(mock_model)
 
-        with patch("app.agent.nodes.ChatGoogleGenerativeAI"):
+        with patch("app.agent.adapters.gemini_llm.ChatGoogleGenerativeAI"):
             agent_router = create_agent_router("test-key")
 
         app = FastAPI()
@@ -404,8 +404,8 @@ class TestRegression:
 class TestVerificationLoop:
     def test_failed_verification_triggers_rewrite_and_recovers(self):
         with (
-            patch("app.agent.nodes.SourceResolver") as mock_sr_class,
-            patch("app.agent.nodes.ChatGoogleGenerativeAI") as mock_llm_class,
+            patch("app.agent.nodes.fetch_source.SourceResolver") as mock_sr_class,
+            patch("app.agent.adapters.gemini_llm.ChatGoogleGenerativeAI") as mock_llm_class,
         ):
             mock_resolver = MagicMock()
             mock_resolver.fetch_and_parse.return_value = {
@@ -454,8 +454,8 @@ class TestVerificationLoop:
 
     def test_exceeding_max_retries_returns_unknown_200(self):
         with (
-            patch("app.agent.nodes.SourceResolver") as mock_sr_class,
-            patch("app.agent.nodes.ChatGoogleGenerativeAI") as mock_llm_class,
+            patch("app.agent.nodes.fetch_source.SourceResolver") as mock_sr_class,
+            patch("app.agent.adapters.gemini_llm.ChatGoogleGenerativeAI") as mock_llm_class,
         ):
             mock_resolver = MagicMock()
             mock_resolver.fetch_and_parse.return_value = {
