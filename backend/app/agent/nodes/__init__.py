@@ -57,78 +57,8 @@ from app.agent.nodes.parse_output import parse_output
 # Task 3.1 / 3.2: resolve_topic_input ノードファクトリ
 # ---------------------------------------------------------------------------
 
-def make_resolve_topic_input_node(
-    gemini_api_key: str,
-) -> Callable[[AgentState], dict[str, Any]]:
-    """
-    ファクトリ関数。topic の有無を評価してトピックを解決するノード関数を返す。
+from app.agent.nodes.resolve_topic_input import make_resolve_topic_input_node
 
-    topic が指定済みの場合:
-      → LLM 呼び出しなしで {"resolved_topic": topic} を返す
-
-    topic が未指定（None）の場合:
-      → 探索専用 LLM（temperature=0.2, max_tokens=32）でソーステキストから探索
-      → 後処理パイプライン適用後に {"resolved_topic": resolved_topic} を返す
-
-    エラー時: {"error_code": "TOPIC_RESOLVE_FAILED", "error_status": 500}
-    Requirements: 1.1, 1.2, 1.4, 1.5, 2.1, 2.2, 2.3, 3.1–3.8
-    """
-    # 探索専用 LLM インスタンスをファクトリ呼び出し時に 1 度だけ生成（クロージャで保持）
-    explore_llm = ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash-lite",
-        google_api_key=gemini_api_key,
-        temperature=0.2,
-        max_tokens=32,
-    )
-
-    def resolve_topic_input(state: AgentState) -> dict[str, Any]:
-        topic = state.get("topic")
-
-        # topic が指定済みの場合はスキップ（Requirements: 2.1, 2.2, 2.3）
-        if topic is not None:
-            logger.info(
-                "[resolve_topic_input] topic provided, skipping exploration: %s", topic
-            )
-            return {"resolved_topic": topic}
-
-        # topic が未指定の場合は LLM で探索（Requirements: 3.1–3.8）
-        source_text = state.get("source_text", "")
-        source_title = state.get("source_title", "")
-        prompt = (
-            f"タイトル: {source_title}\n\n"
-            f"本文:\n{source_text[:2000]}\n\n"
-            "以下のタイトルと本文を読み、クイズ問題として具体的で興味深いトピックを"
-            "1つ選んでください。"
-            "トピック名だけを1行・20文字以内で返し、説明や装飾は一切付けないでください。"
-        )
-
-        try:
-            ai_msg = explore_llm.invoke(prompt)
-            raw = ai_msg.text
-
-            # 後処理パイプライン（Requirements: 3.4）
-            # ①改行で分割して 1 行目のみ採用 → ②strip → ③空文字チェック → ④20文字切り詰め
-            resolved_topic = raw.split("\n")[0].strip()
-            if not resolved_topic:
-                return {"error_code": "TOPIC_RESOLVE_FAILED", "error_status": 500}
-            if len(resolved_topic) > 20:
-                resolved_topic = resolved_topic[:20]
-
-            logger.info(
-                "[resolve_topic_input] topic not provided, exploring... resolved: %s",
-                resolved_topic,
-            )
-            return {"resolved_topic": resolved_topic}
-
-        except Exception:
-            return {"error_code": "TOPIC_RESOLVE_FAILED", "error_status": 500}
-
-    return resolve_topic_input
-
-
-# ---------------------------------------------------------------------------
-# Task 3 (検証ループ): decompose_claims ノードファクトリ
-# ---------------------------------------------------------------------------
 
 def make_decompose_claims_node(
     gemini_api_key: str,
