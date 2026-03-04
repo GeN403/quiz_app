@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from google.api_core import exceptions as google_exceptions
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-from services.source_resolver import SourceResolver
+from app.services.source_resolver import SourceResolver
 from app.core.prompt_builder import (
     build_prompt_url_mode,
     build_prompt_decompose_claims,
@@ -20,7 +20,7 @@ from app.core.prompt_builder import (
     build_prompt_rewrite_quiz,
 )
 from app.clients.gemini_client import parse_json_with_retry
-from models.quiz import QuizData
+from app.models.quiz import QuizData
 from app.agent.state import (
     AgentState,
     ClaimEntry,
