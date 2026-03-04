@@ -16,18 +16,7 @@ def make_state(**kwargs):
                 "rank": 1,
             }
         ],
-        "quiz_text": "QUESTION:
-Q
-
----
-
-EXPLANATION:
-E
-
----
-
-ALTERNATIVE:
-A",
+        "quiz_text": "QUESTION:\nQ\n\n---\n\nEXPLANATION:\nE\n\n---\n\nALTERNATIVE:\nA",
         "verification_attempts": 0,
     }
     base.update(kwargs)
