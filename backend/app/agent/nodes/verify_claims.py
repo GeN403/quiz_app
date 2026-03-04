@@ -4,8 +4,8 @@ import logging
 from typing import Any, Callable
 
 from pydantic import ValidationError
-from langchain_google_genai import ChatGoogleGenerativeAI
 
+from app.agent.adapters.gemini_llm import GeminiLLMAdapter
 from app.agent.state import (
     AgentState,
     ClaimEntry,
@@ -84,10 +84,7 @@ def make_verify_claims_node(
             evidence_by_claim[cid].append(ev)
 
         # LLM インスタンス（根拠あり主張の判定に使用）
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash-lite",
-            google_api_key=gemini_api_key,
-        )
+        llm = GeminiLLMAdapter(api_key=gemini_api_key)
 
         verification_results: list[VerificationResult] = []
 
@@ -110,8 +107,8 @@ def make_verify_claims_node(
             # Task 5.1: 根拠あり → LLM 判定 (Requirements: 3.1)
             prompt = build_prompt_verify_claim(claim, evidences)
             try:
-                response = llm.invoke(prompt)
-                parsed = parse_json_with_retry(response.content)
+                response_text = llm.invoke(prompt)
+                parsed = parse_json_with_retry(response_text)
 
                 if not isinstance(parsed, dict):
                     verdict = "fail"

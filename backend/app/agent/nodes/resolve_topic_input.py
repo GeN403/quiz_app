@@ -3,8 +3,7 @@
 import logging
 from typing import Any, Callable
 
-from langchain_google_genai import ChatGoogleGenerativeAI
-
+from app.agent.adapters.gemini_llm import GeminiLLMAdapter, GeminiLLMConfig
 from app.agent.state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -14,11 +13,9 @@ def make_resolve_topic_input_node(
     gemini_api_key: str,
 ) -> Callable[[AgentState], dict[str, Any]]:
     """Create resolve_topic_input node."""
-    explore_llm = ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash-lite",
-        google_api_key=gemini_api_key,
-        temperature=0.2,
-        max_tokens=32,
+    explore_llm = GeminiLLMAdapter(
+        api_key=gemini_api_key,
+        config=GeminiLLMConfig(temperature=0.2, max_tokens=32),
     )
 
     def resolve_topic_input(state: AgentState) -> dict[str, Any]:
@@ -41,8 +38,7 @@ def make_resolve_topic_input_node(
         )
 
         try:
-            ai_msg = explore_llm.invoke(prompt)
-            raw = ai_msg.text
+            raw = explore_llm.invoke(prompt)
 
             resolved_topic = raw.split("\n")[0].strip()
             if not resolved_topic:

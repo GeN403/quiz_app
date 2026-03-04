@@ -3,9 +3,8 @@ import logging
 
 from typing import Any, Callable
 
-from google.api_core import exceptions as google_exceptions
-from langchain_google_genai import ChatGoogleGenerativeAI
-
+from app.agent.adapters.gemini_llm import GeminiLLMAdapter
+from app.agent.ports.llm import LLMPortError
 from app.agent.state import AgentState, ClaimEntry
 from app.clients.gemini_client import parse_json_with_retry
 from app.core.prompt_builder import build_prompt_decompose_claims
@@ -15,6 +14,7 @@ logger = logging.getLogger(__name__)
 def make_decompose_claims_node(
     gemini_api_key: str,
 ) -> Callable[[AgentState], dict[str, Any]]:
+    llm = GeminiLLMAdapter(api_key=gemini_api_key)
     """
     ファクトリ関数。llm_raw_response を解析して quiz_text を構築し、
     LLM に原子的主張リストの分解を要求するノード関数を返す。
@@ -61,29 +61,11 @@ def make_decompose_claims_node(
         # 3. build_prompt_decompose_claims を呼び出して LLM に主張リストを要求する (Task 3.1)
         prompt = build_prompt_decompose_claims(quiz_text)
         try:
-            llm = ChatGoogleGenerativeAI(
-                model="gemini-2.0-flash-lite",
-                google_api_key=gemini_api_key,
-            )
-            response = llm.invoke(prompt)
-            claims_raw = response.content
+            claims_raw = llm.invoke(prompt)
             logger.info(f"[decompose_claims] LLM response received ({len(claims_raw)} chars)")
-
-        except google_exceptions.Unauthenticated:
-            logger.info("[decompose_claims] Unauthenticated error")
-            return {"error_code": "GEMINI_API_KEY_INVALID", "error_status": 401}
-        except google_exceptions.PermissionDenied:
-            logger.info("[decompose_claims] PermissionDenied error")
-            return {"error_code": "GEMINI_API_KEY_PERMISSION_DENIED", "error_status": 403}
-        except google_exceptions.ResourceExhausted:
-            logger.info("[decompose_claims] ResourceExhausted error")
-            return {"error_code": "GEMINI_RATE_LIMIT", "error_status": 429}
-        except (google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError):
-            logger.info("[decompose_claims] Service unavailable error")
-            return {"error_code": "GEMINI_SERVICE_UNAVAILABLE", "error_status": 503}
-        except google_exceptions.DeadlineExceeded:
-            logger.info("[decompose_claims] DeadlineExceeded error")
-            return {"error_code": "GEMINI_TIMEOUT", "error_status": 504}
+        except LLMPortError as e:
+            logger.info(f"[decompose_claims] LLMPortError: {e.error_code}")
+            return {"error_code": e.error_code, "error_status": e.status_code}
         except Exception as e:
             logger.info(f"[decompose_claims] Unexpected error: {e}")
             return {"error_code": "GEMINI_SERVICE_UNAVAILABLE", "error_status": 503}

@@ -1,10 +1,10 @@
 """Collect evidence node factory."""
 import logging
 
-from typing import Any, Callable
+from typing import Callable
 
-from langchain_google_genai import ChatGoogleGenerativeAI
-
+from app.agent.adapters.gemini_llm import GeminiLLMAdapter
+from app.agent.ports.llm import LLMPort
 from app.agent.state import AgentState, ClaimEntry, EvidenceEntry
 from app.clients.gemini_client import parse_json_with_retry
 from app.services.source_resolver import SourceResolver
@@ -24,7 +24,7 @@ def make_collect_evidence_node(
     Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 3.7
     """
 
-    def _extract_quote(llm: Any, text: str, claim_text: str) -> str:
+    def _extract_quote(llm: LLMPort, text: str, claim_text: str) -> str:
         """テキストから主張に関連する根拠 quote を LLM で抽出する"""
         prompt = (
             f"以下のテキストから、主張を検証するための根拠となる引用文を抽出してください。\n\n"
@@ -33,13 +33,13 @@ def make_collect_evidence_node(
             f"JSONオブジェクトのみを出力してください（説明文・コードブロック不要）:\n"
             f'{{"quote": "引用文（50〜300文字）。根拠が見つからない場合は空文字列"}}'
         )
-        response = llm.invoke(prompt)
-        parsed = parse_json_with_retry(response.content)
+        response_text = llm.invoke(prompt)
+        parsed = parse_json_with_retry(response_text)
         if isinstance(parsed, dict):
             return str(parsed.get("quote", "")).strip()
         return ""
 
-    def _suggest_url(llm: Any, claim_text: str) -> str:
+    def _suggest_url(llm: LLMPort, claim_text: str) -> str:
         """主張の根拠となる補足 URL を LLM に提案させる"""
         prompt = (
             f"以下の主張について、事実確認に使える信頼性の高い日本語 URL を 1 つ提案してください。\n\n"
@@ -47,8 +47,8 @@ def make_collect_evidence_node(
             f"JSONオブジェクトのみを出力してください（説明文・コードブロック不要）:\n"
             f'{{"url": "URL。適切な URL がない場合は空文字列"}}'
         )
-        response = llm.invoke(prompt)
-        parsed = parse_json_with_retry(response.content)
+        response_text = llm.invoke(prompt)
+        parsed = parse_json_with_retry(response_text)
         if isinstance(parsed, dict):
             url = str(parsed.get("url", "")).strip()
             if url.startswith(("http://", "https://")):
@@ -64,10 +64,7 @@ def make_collect_evidence_node(
 
         evidence_list: list[EvidenceEntry] = []
 
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash-lite",
-            google_api_key=gemini_api_key,
-        )
+        llm = GeminiLLMAdapter(api_key=gemini_api_key)
 
         for claim in claims:
             claim_id = claim["claim_id"]

@@ -3,9 +3,8 @@ import logging
 
 from typing import Any, Callable
 
-from google.api_core import exceptions as google_exceptions
-from langchain_google_genai import ChatGoogleGenerativeAI
-
+from app.agent.adapters.gemini_llm import GeminiLLMAdapter
+from app.agent.ports.llm import LLMPortError
 from app.agent.state import AgentState
 from app.core.prompt_builder import build_prompt_rewrite_quiz
 logger = logging.getLogger(__name__)
@@ -14,6 +13,7 @@ logger = logging.getLogger(__name__)
 def make_rewrite_quiz_node(
     gemini_api_key: str,
 ) -> Callable[[AgentState], dict[str, Any]]:
+    llm = GeminiLLMAdapter(api_key=gemini_api_key)
     """
     ファクトリ関数。fail した主張情報をもとに LLM に問題を書き換えさせ、
     llm_raw_response を更新して verification_attempts をインクリメントするノード関数を返す。
@@ -51,29 +51,11 @@ def make_rewrite_quiz_node(
         logger.info(f"[rewrite_quiz] Rewriting quiz with {len(failed_claims)} failed claims")
 
         try:
-            llm = ChatGoogleGenerativeAI(
-                model="gemini-2.0-flash-lite",
-                google_api_key=gemini_api_key,
-            )
-            response = llm.invoke(prompt)
-            raw_text = response.content
+            raw_text = llm.invoke(prompt)
             logger.info(f"[rewrite_quiz] LLM response received ({len(raw_text)} chars)")
-
-        except google_exceptions.Unauthenticated:
-            logger.info("[rewrite_quiz] Unauthenticated error")
-            return {"error_code": "GEMINI_API_KEY_INVALID", "error_status": 401}
-        except google_exceptions.PermissionDenied:
-            logger.info("[rewrite_quiz] PermissionDenied error")
-            return {"error_code": "GEMINI_API_KEY_PERMISSION_DENIED", "error_status": 403}
-        except google_exceptions.ResourceExhausted:
-            logger.info("[rewrite_quiz] ResourceExhausted error")
-            return {"error_code": "GEMINI_RATE_LIMIT", "error_status": 429}
-        except (google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError):
-            logger.info("[rewrite_quiz] Service unavailable error")
-            return {"error_code": "GEMINI_SERVICE_UNAVAILABLE", "error_status": 503}
-        except google_exceptions.DeadlineExceeded:
-            logger.info("[rewrite_quiz] DeadlineExceeded error")
-            return {"error_code": "GEMINI_TIMEOUT", "error_status": 504}
+        except LLMPortError as e:
+            logger.info(f"[rewrite_quiz] LLMPortError: {e.error_code}")
+            return {"error_code": e.error_code, "error_status": e.status_code}
         except Exception as e:
             logger.info(f"[rewrite_quiz] Unexpected error: {e}")
             return {"error_code": "GEMINI_SERVICE_UNAVAILABLE", "error_status": 503}
