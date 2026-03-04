@@ -1,4 +1,5 @@
 """Verify claims node factory."""
+import logging
 
 from typing import Any, Callable
 
@@ -21,6 +22,7 @@ from app.agent.disambiguation_services import (
 )
 from app.clients.gemini_client import parse_json_with_retry
 from app.core.prompt_builder import build_prompt_verify_claim
+logger = logging.getLogger(__name__)
 
 
 MAX_VERIFICATION_RETRIES = 3
@@ -61,7 +63,7 @@ def make_verify_claims_node(
             }
 
     def verify_claims(state: AgentState) -> dict[str, Any]:
-        print("[verify_claims] Starting")
+        logger.info("[verify_claims] Starting")
         params, param_error = _resolve_disambiguation_parameters(state)
         if param_error:
             return param_error
@@ -102,7 +104,7 @@ def make_verify_claims_node(
                     "reason": "根拠が取得できないため検証不能",
                 }
                 verification_results.append(auto_fail)
-                print(f"[verify_claims] Auto-fail for {claim_id} (no evidence)")
+                logger.info(f"[verify_claims] Auto-fail for {claim_id} (no evidence)")
                 continue
 
             # Task 5.1: 根拠あり → LLM 判定 (Requirements: 3.1)
@@ -121,7 +123,7 @@ def make_verify_claims_node(
 
                 # Task 5.1: verdict=="fail" かつ reason が空/None → INTERNAL_SCHEMA_ERROR
                 if verdict == "fail" and not reason:
-                    print(f"[verify_claims] INTERNAL_SCHEMA_ERROR: fail with empty reason for {claim_id}")
+                    logger.info(f"[verify_claims] INTERNAL_SCHEMA_ERROR: fail with empty reason for {claim_id}")
                     return {"error_code": "INTERNAL_SCHEMA_ERROR", "error_status": 500}
 
                 vr: VerificationResult = {
@@ -131,7 +133,7 @@ def make_verify_claims_node(
                 if reason:
                     vr["reason"] = reason
                 verification_results.append(vr)
-                print(f"[verify_claims] {claim_id}: {verdict}")
+                logger.info(f"[verify_claims] {claim_id}: {verdict}")
 
             except Exception as e:
                 # LLM 呼び出し例外 → fail として処理
@@ -142,14 +144,14 @@ def make_verify_claims_node(
                     "reason": reason,
                 }
                 verification_results.append(vr_err)
-                print(f"[verify_claims] LLM error for {claim_id}: {e}")
+                logger.info(f"[verify_claims] LLM error for {claim_id}: {e}")
 
         # Task 5.2: 全 pass チェック
         failed_results = [r for r in verification_results if r.get("verdict") == "fail"]
 
         if not failed_results:
             # 全 pass: verification_results のみ返す（スナップショット追記なし）
-            print("[verify_claims] All claims passed")
+            logger.info("[verify_claims] All claims passed")
             verification_outcome: JudgementResult = {
                 "verdict": "pass",
                 "reason": "全主張が根拠と整合したため通過",
@@ -178,7 +180,7 @@ def make_verify_claims_node(
                 "temperature": 0.0,
             },
         }
-        print(
+        logger.info(
             f"[verify_claims] Fail detected: {failed_claim_ids}, "
             f"attempts={verification_attempts}"
         )

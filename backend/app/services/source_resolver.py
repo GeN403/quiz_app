@@ -3,12 +3,14 @@ SourceResolver: URL→本文テキスト抽出→quote候補生成を行うサ�
 
 サーバ責務でURLを解決し、LLMに「捏造」させない設計にする。
 """
+import logging
 
 import requests
 from bs4 import BeautifulSoup
 from typing import Dict, List, Optional
 import re
 from fastapi import HTTPException
+logger = logging.getLogger(__name__)
 
 
 class SourceResolver:
@@ -43,7 +45,7 @@ class SourceResolver:
         Raises:
             HTTPException: 取得・パース失敗時
         """
-        print(f"[SourceResolver] Fetching URL: {self.url}")
+        logger.info(f"[SourceResolver] Fetching URL: {self.url}")
 
         try:
             # User-Agentを設定してブロックを回避
@@ -57,20 +59,20 @@ class SourceResolver:
                 allow_redirects=True
             )
 
-            print(f"[SourceResolver] HTTP Status: {response.status_code}")
-            print(f"[SourceResolver] Final URL: {response.url}")
+            logger.info(f"[SourceResolver] HTTP Status: {response.status_code}")
+            logger.info(f"[SourceResolver] Final URL: {response.url}")
 
             response.raise_for_status()
 
         except requests.exceptions.Timeout as e:
-            print(f"[SourceResolver ERROR] Timeout: {e}")
+            logger.info(f"[SourceResolver ERROR] Timeout: {e}")
             raise HTTPException(
                 status_code=504,
                 detail=f"URL_FETCH_TIMEOUT: URLの取得がタイムアウトしました（{self.timeout}秒以内に応答なし）: {self.url}"
             )
         except requests.exceptions.HTTPError as e:
             status_code = e.response.status_code if e.response else 500
-            print(f"[SourceResolver ERROR] HTTP Error {status_code}: {e}")
+            logger.info(f"[SourceResolver ERROR] HTTP Error {status_code}: {e}")
 
             if status_code == 403:
                 raise HTTPException(
@@ -93,7 +95,7 @@ class SourceResolver:
                     detail=f"URL_FETCH_ERROR: URLの取得に失敗しました（HTTP {status_code}）: {self.url}"
                 )
         except requests.RequestException as e:
-            print(f"[SourceResolver ERROR] Request failed: {e}")
+            logger.info(f"[SourceResolver ERROR] Request failed: {e}")
             raise HTTPException(
                 status_code=502,
                 detail=f"URL_FETCH_FAILED: URLの取得に失敗しました: {str(e)}"
@@ -105,7 +107,7 @@ class SourceResolver:
 
             # タイトル抽出
             self.title = soup.title.string.strip() if soup.title and soup.title.string else "タイトル不明"
-            print(f"[SourceResolver] Page title: {self.title}")
+            logger.info(f"[SourceResolver] Page title: {self.title}")
 
             # 不要タグを除去
             for tag in soup(['script', 'style', 'header', 'footer', 'nav', 'aside', 'iframe']):
@@ -118,8 +120,8 @@ class SourceResolver:
             self.text = re.sub(r'\n+', '\n', self.text)  # 連続改行を1つに
             self.text = re.sub(r' +', ' ', self.text)    # 連続スペースを1つに
 
-            print(f"[SourceResolver] Extracted text length: {len(self.text)} chars")
-            print(f"[SourceResolver] Text preview (first 300 chars): {self.text[:300]}...")
+            logger.info(f"[SourceResolver] Extracted text length: {len(self.text)} chars")
+            logger.info(f"[SourceResolver] Text preview (first 300 chars): {self.text[:300]}...")
 
             if not self.text or len(self.text) < 100:
                 raise HTTPException(
@@ -130,7 +132,7 @@ class SourceResolver:
         except HTTPException:
             raise
         except Exception as e:
-            print(f"[SourceResolver ERROR] Parse error: {e}")
+            logger.info(f"[SourceResolver ERROR] Parse error: {e}")
             raise HTTPException(
                 status_code=502,
                 detail=f"URL_PARSE_ERROR: ページ内容の解析に失敗しました: {str(e)}"
@@ -138,7 +140,7 @@ class SourceResolver:
 
         # quote候補を生成
         self.quotes = self._extract_quote_candidates(self.text)
-        print(f"[SourceResolver] Generated {len(self.quotes)} quote candidates")
+        logger.info(f"[SourceResolver] Generated {len(self.quotes)} quote candidates")
 
         return {
             "url": self.url,
@@ -229,8 +231,8 @@ class SourceResolver:
         is_found = normalized_quote in normalized_text
 
         if is_found:
-            print(f"[SourceResolver] Quote verified: '{quote[:50]}...' found in text")
+            logger.info(f"[SourceResolver] Quote verified: '{quote[:50]}...' found in text")
         else:
-            print(f"[SourceResolver] Quote NOT found: '{quote[:50]}...'")
+            logger.info(f"[SourceResolver] Quote NOT found: '{quote[:50]}...'")
 
         return is_found

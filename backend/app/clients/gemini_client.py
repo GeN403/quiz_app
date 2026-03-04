@@ -1,6 +1,7 @@
 """
 Gemini API クライアント
 """
+import logging
 
 import json
 import re
@@ -8,6 +9,7 @@ from typing import Any
 import google.generativeai as genai
 from google.api_core import exceptions as google_exceptions
 from fastapi import HTTPException
+logger = logging.getLogger(__name__)
 
 
 def call_llm_with_retry(model, prompt: str, max_retries: int = 2) -> str:
@@ -27,36 +29,36 @@ def call_llm_with_retry(model, prompt: str, max_retries: int = 2) -> str:
     """
     for attempt in range(max_retries + 1):
         try:
-            print(f"[LLM] Calling Gemini API (attempt {attempt + 1}/{max_retries + 1})...")
+            logger.info(f"[LLM] Calling Gemini API (attempt {attempt + 1}/{max_retries + 1})...")
             response = model.generate_content(prompt)
             return response.text.strip()
 
         except google_exceptions.Unauthenticated as e:
-            print(f"[ERROR] Gemini API認証エラー: {e}")
+            logger.info(f"[ERROR] Gemini API認証エラー: {e}")
             raise HTTPException(
                 status_code=401,
                 detail="GEMINI_API_KEY_INVALID: APIキーが無効です。backend/.envファイルのGEMINI_API_KEYを確認してください。"
             )
         except google_exceptions.PermissionDenied as e:
-            print(f"[ERROR] Gemini API権限エラー: {e}")
+            logger.info(f"[ERROR] Gemini API権限エラー: {e}")
             raise HTTPException(
                 status_code=403,
                 detail="GEMINI_API_KEY_PERMISSION_DENIED: APIキーに必要な権限がありません。"
             )
         except (google_exceptions.ResourceExhausted, google_exceptions.TooManyRequests) as e:
-            print(f"[ERROR] Gemini APIレート制限: {e}")
+            logger.info(f"[ERROR] Gemini APIレート制限: {e}")
             raise HTTPException(
                 status_code=429,
                 detail="GEMINI_RATE_LIMIT: Gemini APIのレート制限に達しました。しばらく待ってから再度お試しください。"
             )
         except (google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError) as e:
-            print(f"[ERROR] Gemini APIサービスエラー: {e}")
+            logger.info(f"[ERROR] Gemini APIサービスエラー: {e}")
             raise HTTPException(
                 status_code=503,
                 detail="GEMINI_SERVICE_UNAVAILABLE: Gemini APIが一時的に利用できません。"
             )
         except google_exceptions.DeadlineExceeded as e:
-            print(f"[ERROR] Gemini APIタイムアウト: {e}")
+            logger.info(f"[ERROR] Gemini APIタイムアウト: {e}")
             raise HTTPException(
                 status_code=504,
                 detail="GEMINI_TIMEOUT: Gemini APIへのリクエストがタイムアウトしました。"
@@ -64,21 +66,21 @@ def call_llm_with_retry(model, prompt: str, max_retries: int = 2) -> str:
         except ValueError as e:
             error_str = str(e).lower()
             if "api" in error_str and "key" in error_str:
-                print(f"[ERROR] APIキー関連のValueError: {e}")
+                logger.info(f"[ERROR] APIキー関連のValueError: {e}")
                 raise HTTPException(
                     status_code=500,
                     detail="GEMINI_API_KEY_NOT_SET: GEMINI_API_KEYが設定されていません。"
                 )
             else:
-                print(f"[ERROR] ValueError: {e}")
+                logger.info(f"[ERROR] ValueError: {e}")
                 raise HTTPException(
                     status_code=500,
                     detail=f"GEMINI_VALUE_ERROR: {str(e)}"
                 )
         except Exception as e:
-            print(f"[ERROR] Gemini API予期しないエラー (attempt {attempt + 1}): {e}")
+            logger.info(f"[ERROR] Gemini API予期しないエラー (attempt {attempt + 1}): {e}")
             if attempt < max_retries:
-                print(f"[RETRY] Retrying...")
+                logger.info(f"[RETRY] Retrying...")
                 continue
             else:
                 raise HTTPException(
@@ -102,7 +104,7 @@ def parse_json_with_retry(raw_text: str, max_retries: int = 2) -> Any:
     Raises:
         HTTPException: パース失敗時 or 重複キー検出時
     """
-    print("--- [JSON PARSE] Attempting to parse LLM response ---")
+    logger.info("--- [JSON PARSE] Attempting to parse LLM response ---")
 
     # クリーンアップ
     cleaned = raw_text.strip()
@@ -112,10 +114,10 @@ def parse_json_with_retry(raw_text: str, max_retries: int = 2) -> Any:
         match = re.search(r'```json\s*(.*?)\s*```', cleaned, re.DOTALL)
         if match:
             cleaned = match.group(1).strip()
-            print("[JSON PARSE] Extracted JSON from code block")
+            logger.info("[JSON PARSE] Extracted JSON from code block")
     elif cleaned.startswith("```") and cleaned.endswith("```"):
         cleaned = cleaned[3:-3].strip()
-        print("[JSON PARSE] Removed code block markers")
+        logger.info("[JSON PARSE] Removed code block markers")
 
     # 重複キー検出用のフック
     def detect_duplicate_keys(pairs):
@@ -135,13 +137,13 @@ def parse_json_with_retry(raw_text: str, max_retries: int = 2) -> Any:
         try:
             # 重複キー検出を有効にしてパース
             parsed = json.loads(cleaned, object_pairs_hook=detect_duplicate_keys)
-            print(f"[JSON PARSE] Success on attempt {attempt + 1}")
+            logger.info(f"[JSON PARSE] Success on attempt {attempt + 1}")
             return parsed
 
         except ValueError as e:
             # 重複キーエラーは即座に502で返す（リトライ不可）
             if "DUPLICATE_KEY" in str(e):
-                print(f"[JSON PARSE ERROR] Duplicate key detected: {e}")
+                logger.info(f"[JSON PARSE ERROR] Duplicate key detected: {e}")
                 raise HTTPException(
                     status_code=502,
                     detail=f"JSON_DUPLICATE_KEY_ERROR: {str(e)}"
@@ -151,12 +153,12 @@ def parse_json_with_retry(raw_text: str, max_retries: int = 2) -> Any:
                 raise
 
         except json.JSONDecodeError as e:
-            print(f"[JSON PARSE ERROR] Attempt {attempt + 1} failed: {e}")
-            print(f"[JSON PARSE ERROR] Error at position {e.pos}: {e.msg}")
+            logger.info(f"[JSON PARSE ERROR] Attempt {attempt + 1} failed: {e}")
+            logger.info(f"[JSON PARSE ERROR] Error at position {e.pos}: {e.msg}")
 
             if attempt < max_retries:
                 # リトライ戦略: よくあるエラーを自動修正
-                print("[JSON PARSE] Attempting auto-fix...")
+                logger.info("[JSON PARSE] Attempting auto-fix...")
 
                 # 1. 末尾カンマを削除
                 cleaned = re.sub(r',\s*([}\]])', r'\1', cleaned)
@@ -167,13 +169,13 @@ def parse_json_with_retry(raw_text: str, max_retries: int = 2) -> Any:
                 # 3. 制御文字を削除
                 cleaned = re.sub(r'[\x00-\x1f\x7f]', '', cleaned)
 
-                print(f"[JSON PARSE] Retrying with auto-fixed JSON...")
+                logger.info(f"[JSON PARSE] Retrying with auto-fixed JSON...")
                 continue
             else:
                 # 最終的に失敗
-                print("--- [FAILED JSON] ---")
-                print(cleaned[:500])
-                print("--- [END FAILED JSON] ---")
+                logger.info("--- [FAILED JSON] ---")
+                logger.info(cleaned[:500])
+                logger.info("--- [END FAILED JSON] ---")
                 raise HTTPException(
                     status_code=502,
                     detail=f"JSON_PARSE_ERROR: LLMが有効なJSONを返しませんでした。Error: {e.msg} at position {e.pos}"

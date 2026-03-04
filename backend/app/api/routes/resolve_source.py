@@ -1,12 +1,14 @@
 """
 /resolve-source エンドポイント
 """
+import logging
 
 from fastapi import APIRouter, HTTPException
 from app.schemas.requests import ResolveSourceRequest
 from app.schemas.responses import ResolveSourceResponse
 from app.core.domain_validator import validate_url_domain
 from app.services.source_resolver import SourceResolver
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter()
@@ -38,9 +40,9 @@ async def resolve_source(request: ResolveSourceRequest):
         400: URLドメインが許可されていない
         502: URLの取得・パース失敗
     """
-    print(f"\n{'='*60}")
-    print(f"[RESOLVE-SOURCE] Requesting URL: {request.url}")
-    print(f"{'='*60}\n")
+    logger.info(f"\n{'='*60}")
+    logger.info(f"[RESOLVE-SOURCE] Requesting URL: {request.url}")
+    logger.info(f"{'='*60}\n")
 
     # URLドメイン検証
     validate_url_domain(request.url)
@@ -58,8 +60,8 @@ async def resolve_source(request: ResolveSourceRequest):
             quotes=resolved["quotes"]
         )
 
-        print(f"[RESOLVE-SOURCE] Success: {len(response.quotes)} quotes generated")
-        print(f"{'='*60}\n")
+        logger.info(f"[RESOLVE-SOURCE] Success: {len(response.quotes)} quotes generated")
+        logger.info(f"{'='*60}\n")
 
         return response
 
@@ -68,7 +70,7 @@ async def resolve_source(request: ResolveSourceRequest):
         raise
     except Exception as e:
         error_str = str(e)
-        print(f"[RESOLVE-SOURCE ERROR] {error_str[:200]}")
+        logger.info(f"[RESOLVE-SOURCE ERROR] {error_str[:200]}")
         raise HTTPException(
             status_code=502,
             detail=f"SOURCE_RESOLVE_ERROR: URL解決中にエラーが発生しました: {error_str}"

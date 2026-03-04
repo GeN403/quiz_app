@@ -1,4 +1,5 @@
 """Collect evidence node factory."""
+import logging
 
 from typing import Any, Callable
 
@@ -7,6 +8,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from app.agent.state import AgentState, ClaimEntry, EvidenceEntry
 from app.clients.gemini_client import parse_json_with_retry
 from app.services.source_resolver import SourceResolver
+logger = logging.getLogger(__name__)
 
 
 def make_collect_evidence_node(
@@ -54,7 +56,7 @@ def make_collect_evidence_node(
         return ""
 
     def collect_evidence(state: AgentState) -> dict[str, Any]:
-        print("[collect_evidence] Starting")
+        logger.info("[collect_evidence] Starting")
 
         claims: list[ClaimEntry] = state.get("claims", [])
         source_text = state.get("source_text", "")
@@ -77,7 +79,7 @@ def make_collect_evidence_node(
             try:
                 quote = _extract_quote(llm, source_text, claim_text)
             except Exception as e:
-                print(f"[collect_evidence] Quote extraction failed for {claim_id}: {e}")
+                logger.info(f"[collect_evidence] Quote extraction failed for {claim_id}: {e}")
                 quote = ""
 
             if quote:
@@ -90,7 +92,7 @@ def make_collect_evidence_node(
                     "rank": 1,
                 }
                 evidence_list.append(entry)
-                print(f"[collect_evidence] Added source evidence for {claim_id}")
+                logger.info(f"[collect_evidence] Added source evidence for {claim_id}")
             else:
                 # Task 4.2: 不十分な場合は補足 URL を取得 (Requirements: 2.3)
                 try:
@@ -116,16 +118,16 @@ def make_collect_evidence_node(
                                 "rank": 2,
                             }
                             evidence_list.append(supp_entry)
-                            print(
+                            logger.info(
                                 f"[collect_evidence] Added supplementary evidence for {claim_id}"
                             )
                 except Exception as e:
                     # SourceResolver 等の例外はすべて捕捉して 0 件扱いで続行
-                    print(
+                    logger.info(
                         f"[collect_evidence] Supplementary fetch failed for {claim_id}: {e}"
                     )
 
-        print(f"[collect_evidence] Total evidence entries: {len(evidence_list)}")
+        logger.info(f"[collect_evidence] Total evidence entries: {len(evidence_list)}")
         return {"evidence_list": evidence_list}
 
     return collect_evidence
