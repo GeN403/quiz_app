@@ -9,6 +9,8 @@ logger = logging.getLogger(__name__)
 
 from fastapi import HTTPException
 from pydantic import ValidationError
+from google.api_core import exceptions as google_exceptions
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.services.source_resolver import SourceResolver
 from app.core.prompt_builder import (
