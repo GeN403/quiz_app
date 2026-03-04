@@ -1,8 +1,10 @@
 """
 source フィールド検証ロジック
 """
+import logging
 
 from typing import Dict, Any, Optional
+logger = logging.getLogger(__name__)
 
 
 def verify_source_fields(quiz_dict: Dict[str, Any], expected_url: str, source_text: Optional[str] = None) -> None:
@@ -37,7 +39,7 @@ def verify_source_fields(quiz_dict: Dict[str, Any], expected_url: str, source_te
         actual_url = source["url"]
         if actual_url != expected_url:
             raise ValueError(f"source.url が不一致: expected={expected_url}, actual={actual_url}")
-        print(f"[VERIFY] source.url matched: {actual_url}")
+        logger.info(f"[VERIFY] source.url matched: {actual_url}")
 
     # quote検証（URLモード時）
     if source_text is not None and "quote" in source:
@@ -59,9 +61,9 @@ def verify_source_fields(quiz_dict: Dict[str, Any], expected_url: str, source_te
 
             if normalized_quote not in normalized_text:
                 raise ValueError(f"source.quote が本文に存在しません: '{quote[:50]}...'")
-            print(f"[VERIFY] source.quote verified: '{quote[:50]}...'")
+            logger.info(f"[VERIFY] source.quote verified: '{quote[:50]}...'")
         else:
-            print(f"[VERIFY] source.quote is empty (allowed in category mode)")
+            logger.info(f"[VERIFY] source.quote is empty (allowed in category mode)")
 
     # 余計なキーがないか確認
     allowed_keys = {"title", "url", "quote"}
@@ -69,4 +71,4 @@ def verify_source_fields(quiz_dict: Dict[str, Any], expected_url: str, source_te
     if extra_keys:
         raise ValueError(f"source に余計なキーが含まれています: {extra_keys}")
 
-    print("[VERIFY] source fields validation passed")
+    logger.info("[VERIFY] source fields validation passed")

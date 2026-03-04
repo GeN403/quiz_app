@@ -1,4 +1,5 @@
 """Rewrite quiz node factory."""
+import logging
 
 from typing import Any, Callable
 
@@ -7,6 +8,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.agent.state import AgentState
 from app.core.prompt_builder import build_prompt_rewrite_quiz
+logger = logging.getLogger(__name__)
 
 
 def make_rewrite_quiz_node(
@@ -23,7 +25,7 @@ def make_rewrite_quiz_node(
     """
 
     def rewrite_quiz(state: AgentState) -> dict[str, Any]:
-        print("[rewrite_quiz] Starting")
+        logger.info("[rewrite_quiz] Starting")
 
         quiz_text: str = state.get("quiz_text", "")
         verification_results = state.get("verification_results", [])
@@ -46,7 +48,7 @@ def make_rewrite_quiz_node(
             fc["text"] = claims_map.get(fc["claim_id"], "")
 
         prompt = build_prompt_rewrite_quiz(quiz_text, failed_claims)
-        print(f"[rewrite_quiz] Rewriting quiz with {len(failed_claims)} failed claims")
+        logger.info(f"[rewrite_quiz] Rewriting quiz with {len(failed_claims)} failed claims")
 
         try:
             llm = ChatGoogleGenerativeAI(
@@ -55,30 +57,30 @@ def make_rewrite_quiz_node(
             )
             response = llm.invoke(prompt)
             raw_text = response.content
-            print(f"[rewrite_quiz] LLM response received ({len(raw_text)} chars)")
+            logger.info(f"[rewrite_quiz] LLM response received ({len(raw_text)} chars)")
 
         except google_exceptions.Unauthenticated:
-            print("[rewrite_quiz] Unauthenticated error")
+            logger.info("[rewrite_quiz] Unauthenticated error")
             return {"error_code": "GEMINI_API_KEY_INVALID", "error_status": 401}
         except google_exceptions.PermissionDenied:
-            print("[rewrite_quiz] PermissionDenied error")
+            logger.info("[rewrite_quiz] PermissionDenied error")
             return {"error_code": "GEMINI_API_KEY_PERMISSION_DENIED", "error_status": 403}
         except google_exceptions.ResourceExhausted:
-            print("[rewrite_quiz] ResourceExhausted error")
+            logger.info("[rewrite_quiz] ResourceExhausted error")
             return {"error_code": "GEMINI_RATE_LIMIT", "error_status": 429}
         except (google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError):
-            print("[rewrite_quiz] Service unavailable error")
+            logger.info("[rewrite_quiz] Service unavailable error")
             return {"error_code": "GEMINI_SERVICE_UNAVAILABLE", "error_status": 503}
         except google_exceptions.DeadlineExceeded:
-            print("[rewrite_quiz] DeadlineExceeded error")
+            logger.info("[rewrite_quiz] DeadlineExceeded error")
             return {"error_code": "GEMINI_TIMEOUT", "error_status": 504}
         except Exception as e:
-            print(f"[rewrite_quiz] Unexpected error: {e}")
+            logger.info(f"[rewrite_quiz] Unexpected error: {e}")
             return {"error_code": "GEMINI_SERVICE_UNAVAILABLE", "error_status": 503}
 
         # verification_attempts を +1 インクリメント
         new_attempts = current_attempts + 1
-        print(f"[rewrite_quiz] Incremented verification_attempts: {current_attempts} → {new_attempts}")
+        logger.info(f"[rewrite_quiz] Incremented verification_attempts: {current_attempts} → {new_attempts}")
 
         return {
             "llm_raw_response": raw_text,

@@ -1,11 +1,13 @@
 """
 ドメイン検証ロジック
 """
+import logging
 
 import json
 from pathlib import Path
 from urllib.parse import urlparse
 from fastapi import HTTPException
+logger = logging.getLogger(__name__)
 
 
 def load_allowed_domains():
@@ -17,10 +19,10 @@ def load_allowed_domains():
                 config = json.load(f)
                 return config.get("additional_domains", [])
         else:
-            print(f"[WARNING] {config_path} が見つかりません。追加ドメインなしで動作します。")
+            logger.info(f"[WARNING] {config_path} が見つかりません。追加ドメインなしで動作します。")
             return []
     except Exception as e:
-        print(f"[ERROR] allowed_domains.json の読み込みに失敗: {e}")
+        logger.info(f"[ERROR] allowed_domains.json の読み込みに失敗: {e}")
         return []
 
 
@@ -72,7 +74,7 @@ def validate_url_domain(url: str) -> None:
                 status_code=400,
                 detail=f"SOURCE_URL_DOMAIN_NOT_ALLOWED: ドメイン（{domain}）は許可リストに含まれていません"
             )
-        print(f"[OK] URL domain validated: {domain}")
+        logger.info(f"[OK] URL domain validated: {domain}")
     except HTTPException:
         raise
     except Exception as e:

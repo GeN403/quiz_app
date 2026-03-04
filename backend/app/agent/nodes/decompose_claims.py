@@ -1,4 +1,5 @@
 """Decompose claims node factory."""
+import logging
 
 from typing import Any, Callable
 
@@ -8,6 +9,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from app.agent.state import AgentState, ClaimEntry
 from app.clients.gemini_client import parse_json_with_retry
 from app.core.prompt_builder import build_prompt_decompose_claims
+logger = logging.getLogger(__name__)
 
 
 def make_decompose_claims_node(
@@ -29,18 +31,18 @@ def make_decompose_claims_node(
     """
 
     def decompose_claims(state: AgentState) -> dict[str, Any]:
-        print("[decompose_claims] Starting")
+        logger.info("[decompose_claims] Starting")
 
         # 1. llm_raw_response をパースして QuizData を取り出す (Task 3.1)
         raw_response = state.get("llm_raw_response", "")
         try:
             parsed = parse_json_with_retry(raw_response)
         except Exception as e:
-            print(f"[decompose_claims] Failed to parse llm_raw_response: {e}")
+            logger.info(f"[decompose_claims] Failed to parse llm_raw_response: {e}")
             return {"error_code": "AI_INVALID_JSON", "error_status": 500}
 
         if not isinstance(parsed, dict):
-            print("[decompose_claims] llm_raw_response is not a dict")
+            logger.info("[decompose_claims] llm_raw_response is not a dict")
             return {"error_code": "AI_INVALID_JSON", "error_status": 500}
 
         # 2. quiz_text を構築する (Task 3.1)
@@ -54,7 +56,7 @@ def make_decompose_claims_node(
             f"---\n\nEXPLANATION:\n{explanation}\n\n"
             f"---\n\nALTERNATIVE:\n{alternative}"
         )
-        print(f"[decompose_claims] Built quiz_text ({len(quiz_text)} chars)")
+        logger.info(f"[decompose_claims] Built quiz_text ({len(quiz_text)} chars)")
 
         # 3. build_prompt_decompose_claims を呼び出して LLM に主張リストを要求する (Task 3.1)
         prompt = build_prompt_decompose_claims(quiz_text)
@@ -65,36 +67,36 @@ def make_decompose_claims_node(
             )
             response = llm.invoke(prompt)
             claims_raw = response.content
-            print(f"[decompose_claims] LLM response received ({len(claims_raw)} chars)")
+            logger.info(f"[decompose_claims] LLM response received ({len(claims_raw)} chars)")
 
         except google_exceptions.Unauthenticated:
-            print("[decompose_claims] Unauthenticated error")
+            logger.info("[decompose_claims] Unauthenticated error")
             return {"error_code": "GEMINI_API_KEY_INVALID", "error_status": 401}
         except google_exceptions.PermissionDenied:
-            print("[decompose_claims] PermissionDenied error")
+            logger.info("[decompose_claims] PermissionDenied error")
             return {"error_code": "GEMINI_API_KEY_PERMISSION_DENIED", "error_status": 403}
         except google_exceptions.ResourceExhausted:
-            print("[decompose_claims] ResourceExhausted error")
+            logger.info("[decompose_claims] ResourceExhausted error")
             return {"error_code": "GEMINI_RATE_LIMIT", "error_status": 429}
         except (google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError):
-            print("[decompose_claims] Service unavailable error")
+            logger.info("[decompose_claims] Service unavailable error")
             return {"error_code": "GEMINI_SERVICE_UNAVAILABLE", "error_status": 503}
         except google_exceptions.DeadlineExceeded:
-            print("[decompose_claims] DeadlineExceeded error")
+            logger.info("[decompose_claims] DeadlineExceeded error")
             return {"error_code": "GEMINI_TIMEOUT", "error_status": 504}
         except Exception as e:
-            print(f"[decompose_claims] Unexpected error: {e}")
+            logger.info(f"[decompose_claims] Unexpected error: {e}")
             return {"error_code": "GEMINI_SERVICE_UNAVAILABLE", "error_status": 503}
 
         # 4. LLM レスポンスをパースして主張リストを取り出す (Task 3.2)
         try:
             claims_parsed = parse_json_with_retry(claims_raw)
         except Exception as e:
-            print(f"[decompose_claims] Failed to parse claims response: {e}")
+            logger.info(f"[decompose_claims] Failed to parse claims response: {e}")
             return {"error_code": "CLAIM_DECOMPOSE_FAILED", "error_status": 500}
 
         if not isinstance(claims_parsed, list):
-            print("[decompose_claims] Claims response is not a list")
+            logger.info("[decompose_claims] Claims response is not a list")
             return {"error_code": "CLAIM_DECOMPOSE_FAILED", "error_status": 500}
 
         # 5. claim_id を付与して最大 5 件に切り詰める (Task 3.2)
@@ -108,10 +110,10 @@ def make_decompose_claims_node(
 
         # 6. 主張が 0 件の場合はエラー (Task 3.2, Requirements: 1.4)
         if not claims:
-            print("[decompose_claims] No valid claims extracted")
+            logger.info("[decompose_claims] No valid claims extracted")
             return {"error_code": "CLAIM_DECOMPOSE_FAILED", "error_status": 500}
 
-        print(f"[decompose_claims] Extracted {len(claims)} claims")
+        logger.info(f"[decompose_claims] Extracted {len(claims)} claims")
         # 7. claims / quiz_text を返し、evidence_list / verification_results をリセット
         return {
             "claims": claims,

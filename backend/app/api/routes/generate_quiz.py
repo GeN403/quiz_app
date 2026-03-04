@@ -1,6 +1,7 @@
 """
 /generate-quiz エンドポイント
 """
+import logging
 
 from fastapi import APIRouter, HTTPException
 from pydantic import ValidationError
@@ -14,6 +15,7 @@ from app.clients.gemini_client import call_llm_with_retry, parse_json_with_retry
 from app.services.source_resolver import SourceResolver
 from app.models.quiz import QuizData, QuizListResponse, ResolvedConfigData
 import google.generativeai as genai
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter()
@@ -53,9 +55,9 @@ async def generate_quiz(request: QuizRequest, model):
             explicitly_set.append("length")
         if request.genre is not None:
             explicitly_set.append("genre")
-        print(f"[RESOLVE_CONFIG] seed={request.resolve_seed}")
-        print(f"[RESOLVE_CONFIG] randomly resolved: {', '.join(randomly_resolved) or 'none'}")
-        print(f"[RESOLVE_CONFIG] explicitly set by user: {', '.join(explicitly_set) or 'none'}")
+        logger.info(f"[RESOLVE_CONFIG] seed={request.resolve_seed}")
+        logger.info(f"[RESOLVE_CONFIG] randomly resolved: {', '.join(randomly_resolved) or 'none'}")
+        logger.info(f"[RESOLVE_CONFIG] explicitly set by user: {', '.join(explicitly_set) or 'none'}")
     else:
         # resolve_seed 未指定時: 既存の固定デフォルト（後方互換）
         resolved_difficulty = request.difficulty or "normal"
@@ -64,10 +66,10 @@ async def generate_quiz(request: QuizRequest, model):
 
     resolved_topic = request.topic
 
-    print(f"\n{'='*60}")
-    print(f"[REQUEST] category={request.category}, source_type={request.source_type}, question_count={request.question_count}")
-    print(f"[REQUEST] difficulty={resolved_difficulty}, length={resolved_length}, genre={resolved_genre}, topic={resolved_topic}")
-    print(f"{'='*60}\n")
+    logger.info(f"\n{'='*60}")
+    logger.info(f"[REQUEST] category={request.category}, source_type={request.source_type}, question_count={request.question_count}")
+    logger.info(f"[REQUEST] difficulty={resolved_difficulty}, length={resolved_length}, genre={resolved_genre}, topic={resolved_topic}")
+    logger.info(f"{'='*60}\n")
 
     # 1. リクエストパラメータの検証
     if request.category not in CATEGORY_NAMES:
@@ -114,8 +116,8 @@ async def generate_quiz(request: QuizRequest, model):
 
     try:
         # --- URLモード（唯一サポートされるモード） ---
-        print(f"\n--- [URL MODE] Resolving source URL ---")
-        print(f"[INFO] Selected URL (server-side): {request.source_value}")
+        logger.info(f"\n--- [URL MODE] Resolving source URL ---")
+        logger.info(f"[INFO] Selected URL (server-side): {request.source_value}")
 
         resolver = SourceResolver(request.source_value, timeout=10)
         resolved = resolver.fetch_and_parse()
@@ -125,25 +127,25 @@ async def generate_quiz(request: QuizRequest, model):
         source_text = resolved["text"]
         quote_candidates = resolved["quotes"]
 
-        print(f"[INFO] Resolved title: {selected_title}")
-        print(f"[INFO] Extracted text length: {len(source_text)} chars")
-        print(f"[INFO] Quote candidates: {len(quote_candidates)} items")
+        logger.info(f"[INFO] Resolved title: {selected_title}")
+        logger.info(f"[INFO] Extracted text length: {len(source_text)} chars")
+        logger.info(f"[INFO] Quote candidates: {len(quote_candidates)} items")
 
         # selected_quoteの検証と確定
         if request.selected_quote:
             # UIで選択されたquoteを使用（本文に存在するか検証）
-            print(f"[INFO] selected_quote provided: '{request.selected_quote[:50]}...'")
+            logger.info(f"[INFO] selected_quote provided: '{request.selected_quote[:50]}...'")
             if not resolver.verify_quote(request.selected_quote):
                 raise HTTPException(
                     status_code=400,
                     detail=f"SELECTED_QUOTE_INVALID: 選択されたquoteが本文に存在しません"
                 )
             selected_quote = request.selected_quote
-            print(f"[INFO] selected_quote validated")
+            logger.info(f"[INFO] selected_quote validated")
         else:
             # selected_quoteが渡されていない場合は、候補の最初を使用
             selected_quote = quote_candidates[0] if quote_candidates else ""
-            print(f"[INFO] Using first quote candidate as default")
+            logger.info(f"[INFO] Using first quote candidate as default")
 
         # プロンプト生成（URLモードのみ）
         prompt = build_prompt_url_mode(
@@ -159,20 +161,20 @@ async def generate_quiz(request: QuizRequest, model):
         )
 
         # --- LLM呼び出し + JSONパース（リトライあり） ---
-        print(f"\n--- [LLM CALL] Calling Gemini API ---")
+        logger.info(f"\n--- [LLM CALL] Calling Gemini API ---")
         raw_response = call_llm_with_retry(model, prompt, max_retries=2)
 
-        print("--- [RAW RESPONSE] ---")
-        print(raw_response[:500])
-        print("--- [END RAW RESPONSE] ---\n")
+        logger.info("--- [RAW RESPONSE] ---")
+        logger.info(raw_response[:500])
+        logger.info("--- [END RAW RESPONSE] ---\n")
 
         parsed_json = parse_json_with_retry(raw_response, max_retries=2)
 
         # --- source完全上書き（最重要: LLMの出力を一切信用しない） ---
-        print(f"\n--- [SOURCE OVERRIDE] Replacing all source fields with server-confirmed values ---")
-        print(f"[SOURCE OVERRIDE] URL: {selected_url}")
-        print(f"[SOURCE OVERRIDE] Title: {selected_title}")
-        print(f"[SOURCE OVERRIDE] Quote: '{selected_quote[:50]}...'")
+        logger.info(f"\n--- [SOURCE OVERRIDE] Replacing all source fields with server-confirmed values ---")
+        logger.info(f"[SOURCE OVERRIDE] URL: {selected_url}")
+        logger.info(f"[SOURCE OVERRIDE] Title: {selected_title}")
+        logger.info(f"[SOURCE OVERRIDE] Quote: '{selected_quote[:50]}...'")
 
         # サーバが確定したsourceオブジェクト
         enforced_source = {
@@ -201,32 +203,32 @@ async def generate_quiz(request: QuizRequest, model):
                 )
             # LLMが返した source を完全に無視し、サーバ確定値で置換
             quiz["source"] = enforced_source
-            print(f"[SOURCE OVERRIDE] Replaced source for quiz {idx+1}")
+            logger.info(f"[SOURCE OVERRIDE] Replaced source for quiz {idx+1}")
 
-        print(f"[SOURCE OVERRIDE] All {len(quiz_list)} quizzes updated with server-confirmed source\n")
+        logger.info(f"[SOURCE OVERRIDE] All {len(quiz_list)} quizzes updated with server-confirmed source\n")
 
         # --- source検証（サーバ確定値の検証） ---
-        print(f"--- [VALIDATION] Verifying server-confirmed source fields ---")
+        logger.info(f"--- [VALIDATION] Verifying server-confirmed source fields ---")
 
         # 各問のsourceを検証（これはサーバ確定値なので必ず通るはず）
         for idx, quiz in enumerate(quiz_list):
             quiz_num = idx + 1
-            print(f"[VALIDATION] Validating quiz {quiz_num}/{len(quiz_list)}...")
+            logger.info(f"[VALIDATION] Validating quiz {quiz_num}/{len(quiz_list)}...")
 
             try:
                 verify_source_fields(quiz, expected_url=selected_url, source_text=source_text)
             except ValueError as e:
                 # サーバ確定値の検証が失敗するのは実装バグ
-                print(f"[VALIDATION ERROR] Quiz {quiz_num}: {e}")
+                logger.info(f"[VALIDATION ERROR] Quiz {quiz_num}: {e}")
                 raise HTTPException(
                     status_code=500,
                     detail=f"INTERNAL_ERROR: サーバ確定値の検証に失敗しました（実装バグ）: {str(e)}"
                 )
 
-        print(f"[VALIDATION] All {len(quiz_list)} quizzes validated successfully\n")
+        logger.info(f"[VALIDATION] All {len(quiz_list)} quizzes validated successfully\n")
 
         # --- Pydanticモデルでバリデーション ---
-        print(f"--- [PYDANTIC VALIDATION] Validating with Pydantic models ---")
+        logger.info(f"--- [PYDANTIC VALIDATION] Validating with Pydantic models ---")
 
         try:
             if request.question_count == 1:
@@ -243,13 +245,13 @@ async def generate_quiz(request: QuizRequest, model):
                 result = validated_list.model_dump(by_alias=True)
 
         except ValidationError as e:
-            print(f"[PYDANTIC ERROR] {e}")
+            logger.info(f"[PYDANTIC ERROR] {e}")
             raise HTTPException(
                 status_code=502,
                 detail=f"PYDANTIC_VALIDATION_ERROR: 生成結果がスキーマに適合しません: {str(e)}"
             )
 
-        print(f"[PYDANTIC VALIDATION] Success\n")
+        logger.info(f"[PYDANTIC VALIDATION] Success\n")
 
         # --- resolve_seed 指定時: resolved_config を result に付与（Req 6.1〜6.3）---
         if request.resolve_seed is not None:
@@ -260,9 +262,9 @@ async def generate_quiz(request: QuizRequest, model):
                 genre=resolved_genre,
             ).model_dump()
 
-        print(f"{'='*60}")
-        print(f"[SUCCESS] Quiz generation completed")
-        print(f"{'='*60}\n")
+        logger.info(f"{'='*60}")
+        logger.info(f"[SUCCESS] Quiz generation completed")
+        logger.info(f"{'='*60}\n")
 
         return result
 
@@ -271,7 +273,7 @@ async def generate_quiz(request: QuizRequest, model):
         raise
     except Exception as e:
         error_str = str(e)
-        print(f"[ERROR] Unexpected error: {error_str[:200]}")
+        logger.info(f"[ERROR] Unexpected error: {error_str[:200]}")
         raise HTTPException(
             status_code=500,
             detail=f"QUIZ_GENERATION_ERROR: クイズ生成中に予期しないエラーが発生しました: {error_str}"
