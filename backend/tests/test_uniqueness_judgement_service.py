@@ -36,7 +36,7 @@ def _candidate(label: str, category: str, similarity: float):
 
 class TestUniquenessJudgementService:
     def test_score_and_selected_are_assigned(self):
-        from app.agent.uniqueness_judgement import UniquenessJudgementService
+        from app.agent.services.uniqueness_judgement import UniquenessJudgementService
 
         service = UniquenessJudgementService()
         candidates = [
@@ -52,7 +52,7 @@ class TestUniquenessJudgementService:
         assert candidates[1]["selected"] is False
 
     def test_major_threshold_returns_fail_major(self):
-        from app.agent.uniqueness_judgement import UniquenessJudgementService
+        from app.agent.services.uniqueness_judgement import UniquenessJudgementService
 
         service = UniquenessJudgementService()
         candidates = [
@@ -64,7 +64,7 @@ class TestUniquenessJudgementService:
         assert result["verdict"] == "fail_major"
 
     def test_minor_threshold_returns_fail_minor(self):
-        from app.agent.uniqueness_judgement import UniquenessJudgementService
+        from app.agent.services.uniqueness_judgement import UniquenessJudgementService
 
         service = UniquenessJudgementService()
         candidates = [_candidate("A", "synonym", 0.90)]
@@ -72,7 +72,7 @@ class TestUniquenessJudgementService:
         assert result["verdict"] == "fail_minor"
 
     def test_ok_and_under_threshold_returns_pass(self):
-        from app.agent.uniqueness_judgement import UniquenessJudgementService
+        from app.agent.services.uniqueness_judgement import UniquenessJudgementService
 
         service = UniquenessJudgementService()
         candidates = [_candidate("A", "related", 0.20)]
@@ -80,7 +80,7 @@ class TestUniquenessJudgementService:
         assert result["verdict"] == "pass"
 
     def test_partial_or_failed_returns_unknown(self):
-        from app.agent.uniqueness_judgement import UniquenessJudgementService
+        from app.agent.services.uniqueness_judgement import UniquenessJudgementService
 
         service = UniquenessJudgementService()
         candidates = [_candidate("A", "exact", 0.99)]
@@ -92,7 +92,7 @@ class TestUniquenessJudgementService:
 
 class TestReasonTemplateFormatter:
     def test_reason_contains_category_and_count_and_threshold(self):
-        from app.agent.uniqueness_judgement import ReasonTemplateFormatter
+        from app.agent.services.uniqueness_judgement import ReasonTemplateFormatter
 
         formatter = ReasonTemplateFormatter()
         reason = formatter.format(
