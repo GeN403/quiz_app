@@ -20,7 +20,7 @@ def _candidate(label: str, score: float):
 
 class TestMinorDisambiguationService:
     def test_returns_preface_mode_with_edit_ops(self):
-        from app.agent.disambiguation_services import MinorDisambiguationService
+        from app.agent.services.disambiguation import MinorDisambiguationService
 
         service = MinorDisambiguationService()
         proposal = service.propose("Python", "同名競合があるため前置き推奨")
@@ -31,7 +31,7 @@ class TestMinorDisambiguationService:
         assert len(proposal["edit_ops"]) >= 1
 
     def test_qualifier_mode_appends_suffix(self):
-        from app.agent.disambiguation_services import MinorDisambiguationService
+        from app.agent.services.disambiguation import MinorDisambiguationService
 
         service = MinorDisambiguationService()
         proposal = service.propose("Python", "限定語を追加")
@@ -42,7 +42,7 @@ class TestMinorDisambiguationService:
 
 class TestMajorDisambiguationService:
     def test_major_proposal_returns_ranked_alternatives(self):
-        from app.agent.disambiguation_services import MajorDisambiguationService
+        from app.agent.services.disambiguation import MajorDisambiguationService
 
         service = MajorDisambiguationService()
         proposal = service.propose("Python", [_candidate("Ruby", 0.8), _candidate("Go", 0.9)])
