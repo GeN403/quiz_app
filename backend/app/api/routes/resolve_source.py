@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from app.schemas.requests import ResolveSourceRequest
 from app.schemas.responses import ResolveSourceResponse
 from app.core.domain_validator import validate_url_domain
-from services.source_resolver import SourceResolver
+from app.services.source_resolver import SourceResolver
 
 
 router = APIRouter()

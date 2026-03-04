@@ -11,8 +11,8 @@ from app.core.domain_validator import validate_url_domain
 from app.core.prompt_builder import build_prompt_url_mode
 from app.core.source_validator import verify_source_fields
 from app.clients.gemini_client import call_llm_with_retry, parse_json_with_retry
-from services.source_resolver import SourceResolver
-from models.quiz import QuizData, QuizListResponse, ResolvedConfigData
+from app.services.source_resolver import SourceResolver
+from app.models.quiz import QuizData, QuizListResponse, ResolvedConfigData
 import google.generativeai as genai
 
 
