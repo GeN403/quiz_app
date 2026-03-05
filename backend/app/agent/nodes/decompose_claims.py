@@ -4,7 +4,6 @@ import logging
 from typing import Any, Callable
 
 from google.api_core import exceptions as google_exceptions
-from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.agent.state import AgentState, ClaimEntry
 from app.clients.gemini_client import parse_json_with_retry
@@ -61,7 +60,8 @@ def make_decompose_claims_node(
         # 3. build_prompt_decompose_claims を呼び出して LLM に主張リストを要求する (Task 3.1)
         prompt = build_prompt_decompose_claims(quiz_text)
         try:
-            llm = ChatGoogleGenerativeAI(
+            from app.agent import nodes as nodes_pkg
+            llm = nodes_pkg.ChatGoogleGenerativeAI(
                 model="gemini-2.0-flash-lite",
                 google_api_key=gemini_api_key,
             )
