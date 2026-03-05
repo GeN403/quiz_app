@@ -4,7 +4,6 @@ import logging
 from typing import Any, Callable
 
 from pydantic import ValidationError
-from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.agent.state import (
     AgentState,
@@ -15,8 +14,8 @@ from app.agent.state import (
     DisambiguationParametersModel,
     JudgementResult,
 )
-from app.agent.services.loop_control import LoopControlService
-from app.agent.services.disambiguation import (
+from app.agent.loop_control import LoopControlService
+from app.agent.disambiguation_services import (
     MinorDisambiguationService,
     MajorDisambiguationService,
 )
@@ -84,7 +83,8 @@ def make_verify_claims_node(
             evidence_by_claim[cid].append(ev)
 
         # LLM インスタンス（根拠あり主張の判定に使用）
-        llm = ChatGoogleGenerativeAI(
+        from app.agent import nodes as nodes_pkg
+        llm = nodes_pkg.ChatGoogleGenerativeAI(
             model="gemini-2.0-flash-lite",
             google_api_key=gemini_api_key,
         )

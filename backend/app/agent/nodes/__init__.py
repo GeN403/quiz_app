@@ -30,8 +30,8 @@ from app.agent.state import (
     DisambiguationParametersModel,
     JudgementResult,
 )
-from app.agent.services.loop_control import LoopControlService
-from app.agent.services.disambiguation import (
+from app.agent.loop_control import LoopControlService
+from app.agent.disambiguation_services import (
     MinorDisambiguationService,
     MajorDisambiguationService,
 )

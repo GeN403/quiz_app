@@ -3,8 +3,6 @@
 import logging
 from typing import Any, Callable
 
-from langchain_google_genai import ChatGoogleGenerativeAI
-
 from app.agent.state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -14,7 +12,8 @@ def make_resolve_topic_input_node(
     gemini_api_key: str,
 ) -> Callable[[AgentState], dict[str, Any]]:
     """Create resolve_topic_input node."""
-    explore_llm = ChatGoogleGenerativeAI(
+    from app.agent import nodes as nodes_pkg
+    explore_llm = nodes_pkg.ChatGoogleGenerativeAI(
         model="gemini-2.0-flash-lite",
         google_api_key=gemini_api_key,
         temperature=0.2,

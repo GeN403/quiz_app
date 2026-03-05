@@ -3,11 +3,8 @@ import logging
 
 from typing import Any, Callable
 
-from langchain_google_genai import ChatGoogleGenerativeAI
-
 from app.agent.state import AgentState, ClaimEntry, EvidenceEntry
 from app.clients.gemini_client import parse_json_with_retry
-from app.services.source_resolver import SourceResolver
 logger = logging.getLogger(__name__)
 
 
@@ -64,7 +61,8 @@ def make_collect_evidence_node(
 
         evidence_list: list[EvidenceEntry] = []
 
-        llm = ChatGoogleGenerativeAI(
+        from app.agent import nodes as nodes_pkg
+        llm = nodes_pkg.ChatGoogleGenerativeAI(
             model="gemini-2.0-flash-lite",
             google_api_key=gemini_api_key,
         )
@@ -98,7 +96,7 @@ def make_collect_evidence_node(
                 try:
                     supp_url = _suggest_url(llm, claim_text)
                     if supp_url:
-                        resolver = SourceResolver(supp_url, timeout=10)
+                        resolver = nodes_pkg.SourceResolver(supp_url, timeout=10)
                         resolved = resolver.fetch_and_parse()
                         supp_text = resolved.get("text", "")
 

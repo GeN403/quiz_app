@@ -4,7 +4,6 @@ import logging
 from typing import Any, Callable
 
 from google.api_core import exceptions as google_exceptions
-from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.agent.state import AgentState
 from app.core.prompt_builder import build_prompt_rewrite_quiz
@@ -51,7 +50,8 @@ def make_rewrite_quiz_node(
         logger.info(f"[rewrite_quiz] Rewriting quiz with {len(failed_claims)} failed claims")
 
         try:
-            llm = ChatGoogleGenerativeAI(
+            from app.agent import nodes as nodes_pkg
+            llm = nodes_pkg.ChatGoogleGenerativeAI(
                 model="gemini-2.0-flash-lite",
                 google_api_key=gemini_api_key,
             )

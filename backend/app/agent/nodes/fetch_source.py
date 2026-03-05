@@ -3,7 +3,6 @@ import logging
 
 from typing import Any
 
-from app.services.source_resolver import SourceResolver
 from app.agent.state import AgentState
 logger = logging.getLogger(__name__)
 
@@ -15,7 +14,8 @@ def fetch_source(state: AgentState) -> dict[str, Any]:
     logger.info(f"[fetch_source] Fetching URL: {source_value}")
 
     try:
-        resolver = SourceResolver(source_value, timeout=10)
+        from app.agent import nodes as nodes_pkg
+        resolver = nodes_pkg.SourceResolver(source_value, timeout=10)
         resolved = resolver.fetch_and_parse()
     except Exception as e:
         logger.info(f"[fetch_source] Error fetching source: {e}")
