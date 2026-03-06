@@ -2,6 +2,7 @@
 
 "use client";
 
+import { useState } from "react";
 import {
   Box,
   Button,
@@ -18,8 +19,18 @@ import {
 } from "@mui/material";
 import { CATEGORIES, MAX_ANSWER_LENGTH, TOPIC_MAX_LENGTH } from "./lib/constants";
 import { useQuizGeneration } from "./hooks/useQuizGeneration";
+import {
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
+} from "../components/ui/tabs";
+
+type InputMode = "category" | "url" | "keyword";
 
 export default function Home() {
+  const [inputMode, setInputMode] = useState<InputMode>("category");
+
   const {
     category,
     setCategory,
@@ -89,8 +100,29 @@ export default function Home() {
         }}
       >
         <Typography variant="h6" component="h2">
-          カテゴリを選択してクイズを生成
+          クイズ生成
         </Typography>
+
+        {/* --- 入力モード タブ (PR1: 構造のみ。結線は後続 PR) --- */}
+        <Tabs
+          value={inputMode}
+          onValueChange={(v) => setInputMode(v as InputMode)}
+        >
+          <TabsList>
+            <TabsTrigger value="category">カテゴリ</TabsTrigger>
+            <TabsTrigger value="url">URL</TabsTrigger>
+            <TabsTrigger value="keyword">キーワード</TabsTrigger>
+          </TabsList>
+          <TabsContent value="category">
+            <p>カテゴリ入力エリア（後続 PR で結線）</p>
+          </TabsContent>
+          <TabsContent value="url">
+            <p>URL 入力エリア（後続 PR で結線）</p>
+          </TabsContent>
+          <TabsContent value="keyword">
+            <p>キーワード入力エリア（後続 PR で結線）</p>
+          </TabsContent>
+        </Tabs>
 
         {/* カテゴリ選択 */}
         <FormControl fullWidth>
