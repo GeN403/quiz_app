@@ -25,11 +25,40 @@ import {
   TabsTrigger,
   TabsContent,
 } from "../components/ui/tabs";
+import {
+  QuizOptionsFields,
+  type Difficulty,
+  type QuizLength,
+} from "../components/quiz/QuizOptionsFields";
 
 type InputMode = "category" | "url" | "keyword";
 
+type TabOptions = {
+  questionCount: number;
+  difficulty: Difficulty;
+  length: QuizLength;
+};
+
+const DEFAULT_TAB_OPTIONS: TabOptions = {
+  questionCount: 1,
+  difficulty: "",
+  length: "",
+};
+
 export default function Home() {
   const [inputMode, setInputMode] = useState<InputMode>("category");
+  const [tabOptions, setTabOptions] = useState<Record<InputMode, TabOptions>>({
+    category: { ...DEFAULT_TAB_OPTIONS },
+    url: { ...DEFAULT_TAB_OPTIONS },
+    keyword: { ...DEFAULT_TAB_OPTIONS },
+  });
+
+  const updateTabOption = (mode: InputMode, patch: Partial<TabOptions>) => {
+    setTabOptions((prev) => ({
+      ...prev,
+      [mode]: { ...prev[mode], ...patch },
+    }));
+  };
 
   const {
     category,
@@ -114,13 +143,37 @@ export default function Home() {
             <TabsTrigger value="keyword">キーワード</TabsTrigger>
           </TabsList>
           <TabsContent value="category">
-            <p>カテゴリ入力エリア（後続 PR で結線）</p>
+            <QuizOptionsFields
+              questionCount={tabOptions.category.questionCount}
+              onQuestionCountChange={(v) => updateTabOption("category", { questionCount: v })}
+              difficulty={tabOptions.category.difficulty}
+              onDifficultyChange={(v) => updateTabOption("category", { difficulty: v })}
+              length={tabOptions.category.length}
+              onLengthChange={(v) => updateTabOption("category", { length: v })}
+              disabled={isLoading}
+            />
           </TabsContent>
           <TabsContent value="url">
-            <p>URL 入力エリア（後続 PR で結線）</p>
+            <QuizOptionsFields
+              questionCount={tabOptions.url.questionCount}
+              onQuestionCountChange={(v) => updateTabOption("url", { questionCount: v })}
+              difficulty={tabOptions.url.difficulty}
+              onDifficultyChange={(v) => updateTabOption("url", { difficulty: v })}
+              length={tabOptions.url.length}
+              onLengthChange={(v) => updateTabOption("url", { length: v })}
+              disabled={isLoading}
+            />
           </TabsContent>
           <TabsContent value="keyword">
-            <p>キーワード入力エリア（後続 PR で結線）</p>
+            <QuizOptionsFields
+              questionCount={tabOptions.keyword.questionCount}
+              onQuestionCountChange={(v) => updateTabOption("keyword", { questionCount: v })}
+              difficulty={tabOptions.keyword.difficulty}
+              onDifficultyChange={(v) => updateTabOption("keyword", { difficulty: v })}
+              length={tabOptions.keyword.length}
+              onLengthChange={(v) => updateTabOption("keyword", { length: v })}
+              disabled={isLoading}
+            />
           </TabsContent>
         </Tabs>
 
