@@ -1,5 +1,5 @@
-"""
-反復制御サービスのユニットテスト
+﻿"""
+蜿榊ｾｩ蛻ｶ蠕｡繧ｵ繝ｼ繝薙せ縺ｮ繝ｦ繝九ャ繝医ユ繧ｹ繝・
 
 Tasks: 5.1, 5.2
 """
@@ -23,7 +23,7 @@ def _params(**kwargs):
 
 class TestLoopControlService:
     def test_unknown_stops_immediately(self):
-        from app.agent.services.loop_control import LoopControlService
+        from app.agent.loop_control import LoopControlService
 
         service = LoopControlService()
         decision = service.should_continue(
@@ -37,7 +37,7 @@ class TestLoopControlService:
         assert decision["termination_reason_code"] == "UNKNOWN"
 
     def test_max_attempts_stops(self):
-        from app.agent.services.loop_control import LoopControlService
+        from app.agent.loop_control import LoopControlService
 
         service = LoopControlService()
         decision = service.should_continue(
@@ -51,7 +51,7 @@ class TestLoopControlService:
         assert decision["termination_reason_code"] == "MAX_VERIFICATION_ATTEMPTS_REACHED"
 
     def test_no_change_limit_stops(self):
-        from app.agent.services.loop_control import LoopControlService
+        from app.agent.loop_control import LoopControlService
 
         service = LoopControlService()
         decision = service.should_continue(
@@ -65,7 +65,7 @@ class TestLoopControlService:
         assert decision["termination_reason_code"] == "NO_CHANGE_LIMIT_REACHED"
 
     def test_retrieval_retry_exceeded_stops_with_unknown(self):
-        from app.agent.services.loop_control import LoopControlService
+        from app.agent.loop_control import LoopControlService
 
         service = LoopControlService()
         decision = service.should_continue(
@@ -79,7 +79,7 @@ class TestLoopControlService:
         assert decision["termination_reason_code"] == "RETRIEVAL_RETRY_EXCEEDED"
 
     def test_fail_minor_continues_when_within_limits(self):
-        from app.agent.services.loop_control import LoopControlService
+        from app.agent.loop_control import LoopControlService
 
         service = LoopControlService()
         decision = service.should_continue(
@@ -90,3 +90,4 @@ class TestLoopControlService:
             params=_params(),
         )
         assert decision["continue_loop"] is True
+

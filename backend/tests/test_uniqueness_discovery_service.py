@@ -1,5 +1,5 @@
-"""
-CompetingConceptDiscoveryService のユニットテスト
+﻿"""
+CompetingConceptDiscoveryService 縺ｮ繝ｦ繝九ャ繝医ユ繧ｹ繝・
 
 Task 2.1
 Requirements: 1.1, 1.3, 1.4, 1.6, 2.8, 2.9
@@ -21,7 +21,7 @@ def _search_params():
 
 class TestCompetingConceptDiscoveryService:
     def test_all_sources_succeeded_sets_evidence_status_ok(self):
-        from app.agent.services.uniqueness_discovery import CompetingConceptDiscoveryService
+        from app.agent.uniqueness_discovery import CompetingConceptDiscoveryService
 
         def fetcher(source, concept_text, max_candidates, search_params):
             assert concept_text == "Python"
@@ -41,7 +41,7 @@ class TestCompetingConceptDiscoveryService:
         assert len(result["candidates"]) == 2
 
     def test_zero_candidates_with_success_is_ok_not_failed(self):
-        from app.agent.services.uniqueness_discovery import CompetingConceptDiscoveryService
+        from app.agent.uniqueness_discovery import CompetingConceptDiscoveryService
 
         def fetcher(source, concept_text, max_candidates, search_params):
             return []
@@ -59,7 +59,7 @@ class TestCompetingConceptDiscoveryService:
         assert result["candidates"] == []
 
     def test_partial_when_some_sources_failed(self):
-        from app.agent.services.uniqueness_discovery import CompetingConceptDiscoveryService
+        from app.agent.uniqueness_discovery import CompetingConceptDiscoveryService
 
         def fetcher(source, concept_text, max_candidates, search_params):
             if source == "search":
@@ -80,7 +80,7 @@ class TestCompetingConceptDiscoveryService:
         assert len(result["candidates"]) == 1
 
     def test_failed_when_all_sources_failed(self):
-        from app.agent.services.uniqueness_discovery import CompetingConceptDiscoveryService
+        from app.agent.uniqueness_discovery import CompetingConceptDiscoveryService
 
         def fetcher(source, concept_text, max_candidates, search_params):
             raise RuntimeError("down")
@@ -99,7 +99,7 @@ class TestCompetingConceptDiscoveryService:
         assert result["candidates"] == []
 
     def test_empty_sources_is_failed(self):
-        from app.agent.services.uniqueness_discovery import CompetingConceptDiscoveryService
+        from app.agent.uniqueness_discovery import CompetingConceptDiscoveryService
 
         def fetcher(source, concept_text, max_candidates, search_params):
             return [{"label": "x"}]
@@ -117,7 +117,7 @@ class TestCompetingConceptDiscoveryService:
         assert result["candidates"] == []
 
     def test_search_params_are_recorded_as_is(self):
-        from app.agent.services.uniqueness_discovery import CompetingConceptDiscoveryService
+        from app.agent.uniqueness_discovery import CompetingConceptDiscoveryService
 
         def fetcher(source, concept_text, max_candidates, search_params):
             return []
@@ -134,7 +134,7 @@ class TestCompetingConceptDiscoveryService:
         assert result["search_params"] == params
 
     def test_snapshot_id_is_stable_for_same_input(self):
-        from app.agent.services.uniqueness_discovery import CompetingConceptDiscoveryService
+        from app.agent.uniqueness_discovery import CompetingConceptDiscoveryService
 
         def fetcher(source, concept_text, max_candidates, search_params):
             return []
@@ -152,7 +152,7 @@ class TestCompetingConceptDiscoveryService:
         assert result1["snapshot_id"] == result2["snapshot_id"]
 
     def test_competing_id_uses_snapshot_and_normalized_label(self):
-        from app.agent.services.uniqueness_discovery import CompetingConceptDiscoveryService
+        from app.agent.uniqueness_discovery import CompetingConceptDiscoveryService
 
         def fetcher(source, concept_text, max_candidates, search_params):
             return [{"label": "  PYTHON  "}]
@@ -170,7 +170,7 @@ class TestCompetingConceptDiscoveryService:
         assert result["snapshot_id"] in candidate["competing_id"]
 
     def test_normalized_label_deduplication(self):
-        from app.agent.services.uniqueness_discovery import CompetingConceptDiscoveryService
+        from app.agent.uniqueness_discovery import CompetingConceptDiscoveryService
 
         def fetcher(source, concept_text, max_candidates, search_params):
             return [{"label": "Python"}, {"label": " python "}, {"label": "PYTHON"}]
@@ -184,3 +184,4 @@ class TestCompetingConceptDiscoveryService:
         )
 
         assert len(result["candidates"]) == 1
+
