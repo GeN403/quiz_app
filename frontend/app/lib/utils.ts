@@ -2,6 +2,13 @@
  * ユーティリティ関数
  */
 
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
 // 回答を正規化する関数（スペース削除、小文字変換、全角→半角）
 export const normalizeAnswer = (text: string): string => {
   return text
