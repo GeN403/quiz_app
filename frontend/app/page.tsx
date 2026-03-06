@@ -15,10 +15,10 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  FormHelperText,
 } from "@mui/material";
-import { CATEGORIES, MAX_ANSWER_LENGTH, TOPIC_MAX_LENGTH } from "./lib/constants";
+import { CATEGORIES, MAX_ANSWER_LENGTH } from "./lib/constants";
 import { useQuizGeneration } from "./hooks/useQuizGeneration";
+import { type TabGenerateRequest } from "./lib/tabGenerate";
 import {
   Tabs,
   TabsList,
@@ -47,6 +47,7 @@ const DEFAULT_TAB_OPTIONS: TabOptions = {
 
 export default function Home() {
   const [inputMode, setInputMode] = useState<InputMode>("category");
+  const [keyword, setKeyword] = useState<string>("");
   const [tabOptions, setTabOptions] = useState<Record<InputMode, TabOptions>>({
     category: { ...DEFAULT_TAB_OPTIONS },
     url: { ...DEFAULT_TAB_OPTIONS },
@@ -143,6 +144,23 @@ export default function Home() {
             <TabsTrigger value="keyword">キーワード</TabsTrigger>
           </TabsList>
           <TabsContent value="category">
+            <FormControl fullWidth sx={{ mb: 2 }}>
+              <InputLabel id="category-select-label">カテゴリ</InputLabel>
+              <Select
+                labelId="category-select-label"
+                id="category-select"
+                value={category}
+                label="カテゴリ"
+                onChange={(e) => setCategory(e.target.value)}
+                disabled={isLoading}
+              >
+                {CATEGORIES.map((cat) => (
+                  <MenuItem key={cat.value} value={cat.value}>
+                    {cat.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
             <QuizOptionsFields
               questionCount={tabOptions.category.questionCount}
               onQuestionCountChange={(v) => updateTabOption("category", { questionCount: v })}
@@ -154,6 +172,55 @@ export default function Home() {
             />
           </TabsContent>
           <TabsContent value="url">
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mb: 2 }}>
+              <TextField
+                label="URL"
+                placeholder="https://kotobank.jp/..."
+                value={sourceUrl}
+                onChange={(e) => setSourceUrl(e.target.value)}
+                disabled={isLoading}
+                fullWidth
+              />
+              <Button
+                variant="outlined"
+                onClick={handleResolveSource}
+                disabled={isLoading || !sourceUrl.trim()}
+                fullWidth
+              >
+                {isLoading ? "取得中..." : "本文を取得"}
+              </Button>
+              {resolvedSource && (
+                <Box sx={{ p: 2, bgcolor: "#e8f5e9", borderRadius: 1 }}>
+                  <Typography variant="subtitle2" color="success.main" gutterBottom>
+                    ✓ 本文を取得しました
+                  </Typography>
+                  <Typography variant="caption" display="block">
+                    タイトル: {resolvedSource.title}
+                  </Typography>
+                  <Typography variant="caption" display="block">
+                    引用候補: {resolvedSource.quotes.length}件
+                  </Typography>
+                  {resolvedSource.quotes.length > 0 && (
+                    <FormControl fullWidth sx={{ mt: 1 }}>
+                      <InputLabel id="quote-select-label">引用候補</InputLabel>
+                      <Select
+                        labelId="quote-select-label"
+                        value={selectedQuote}
+                        label="引用候補"
+                        onChange={(e) => setSelectedQuote(e.target.value)}
+                        disabled={isLoading}
+                      >
+                        {resolvedSource.quotes.map((q, i) => (
+                          <MenuItem key={i} value={q}>
+                            {q.length > 60 ? q.slice(0, 60) + "…" : q}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  )}
+                </Box>
+              )}
+            </Box>
             <QuizOptionsFields
               questionCount={tabOptions.url.questionCount}
               onQuestionCountChange={(v) => updateTabOption("url", { questionCount: v })}
@@ -165,6 +232,16 @@ export default function Home() {
             />
           </TabsContent>
           <TabsContent value="keyword">
+            <Box sx={{ mb: 2 }}>
+              <TextField
+                label="キーワード"
+                placeholder="例: 富士山、相対性理論"
+                value={keyword}
+                onChange={(e) => setKeyword(e.target.value)}
+                disabled={isLoading}
+                fullWidth
+              />
+            </Box>
             <QuizOptionsFields
               questionCount={tabOptions.keyword.questionCount}
               onQuestionCountChange={(v) => updateTabOption("keyword", { questionCount: v })}
@@ -177,172 +254,27 @@ export default function Home() {
           </TabsContent>
         </Tabs>
 
-        {/* カテゴリ選択 */}
-        <FormControl fullWidth>
-          <InputLabel id="category-select-label">カテゴリ</InputLabel>
-          <Select
-            labelId="category-select-label"
-            id="category-select"
-            value={category}
-            label="カテゴリ"
-            onChange={(e) => setCategory(e.target.value)}
-            disabled={isLoading}
-          >
-            {CATEGORIES.map((cat) => (
-              <MenuItem key={cat.value} value={cat.value}>
-                {cat.label}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-
-        {/* 生成オプション */}
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 1 }}>
-          <Typography variant="subtitle2" color="text.secondary">
-            生成オプション（任意）
-          </Typography>
-
-          {/* URL指定 */}
-          <TextField
-            label="URL指定（任意）"
-            placeholder="https://kotobank.jp/..."
-            value={sourceUrl}
-            onChange={(e) => setSourceUrl(e.target.value)}
-            disabled={isLoading}
-            helperText="未入力の場合、選択したジャンルから参照URLを自動選択します（コトバンク、*.go.jp、*.ac.jp のみ許可）"
-            fullWidth
-          />
-
-          {/* 本文を取得ボタン */}
-          <Button
-            variant="outlined"
-            onClick={handleResolveSource}
-            disabled={isLoading || !sourceUrl.trim()}
-            fullWidth
-          >
-            {isLoading ? "取得中..." : "本文を取得"}
-          </Button>
-
-          {/* 取得結果の表示 */}
-          {resolvedSource && (
-            <Box sx={{ p: 2, bgcolor: "#e8f5e9", borderRadius: 1 }}>
-              <Typography variant="subtitle2" color="success.main" gutterBottom>
-                ✓ 本文を取得しました
-              </Typography>
-              <Typography variant="caption" display="block">
-                タイトル: {resolvedSource.title}
-              </Typography>
-              <Typography variant="caption" display="block">
-                引用候補: {resolvedSource.quotes.length}件
-              </Typography>
-            </Box>
-          )}
-
-          {/* 問題数指定 */}
-          <TextField
-            label="問題数"
-            type="number"
-            value={questionCount}
-            onChange={(e) => {
-              const val = parseInt(e.target.value);
-              if (val >= 1 && val <= 5) {
-                setQuestionCount(val);
-              }
-            }}
-            disabled={isLoading}
-            inputProps={{ min: 1, max: 5 }}
-            helperText="1〜5問まで指定可能"
-            sx={{ width: "200px" }}
-          />
-
-          {/* 難易度セレクタ（Approach B: 未指定選択肢あり） */}
-          <FormControl fullWidth error={Boolean(fieldErrors.difficulty)}>
-            <InputLabel id="difficulty-select-label">難易度（任意）</InputLabel>
-            <Select
-              labelId="difficulty-select-label"
-              id="difficulty-select"
-              value={difficulty}
-              label="難易度（任意）"
-              onChange={(e) => setDifficulty(e.target.value)}
-              disabled={isLoading}
-            >
-              <MenuItem value="">未指定</MenuItem>
-              <MenuItem value="easy">かんたん</MenuItem>
-              <MenuItem value="normal">ふつう</MenuItem>
-              <MenuItem value="hard">むずかしい</MenuItem>
-            </Select>
-            {fieldErrors.difficulty && (
-              <FormHelperText>{fieldErrors.difficulty}</FormHelperText>
-            )}
-          </FormControl>
-
-          {/* 問題文の長さセレクタ（Approach B: 未指定選択肢あり） */}
-          <FormControl fullWidth error={Boolean(fieldErrors.length)}>
-            <InputLabel id="length-select-label">問題文の長さ（任意）</InputLabel>
-            <Select
-              labelId="length-select-label"
-              id="length-select"
-              value={length}
-              label="問題文の長さ（任意）"
-              onChange={(e) => setLength(e.target.value)}
-              disabled={isLoading}
-            >
-              <MenuItem value="">未指定</MenuItem>
-              <MenuItem value="short">短い（40文字以内）</MenuItem>
-              <MenuItem value="medium">ふつう（80文字以内）</MenuItem>
-              <MenuItem value="long">長い（150文字以内）</MenuItem>
-            </Select>
-            {fieldErrors.length && (
-              <FormHelperText>{fieldErrors.length}</FormHelperText>
-            )}
-          </FormControl>
-
-          {/* ジャンルセレクタ */}
-          <FormControl fullWidth error={Boolean(fieldErrors.genre)}>
-            <InputLabel id="genre-select-label">ジャンル（任意）</InputLabel>
-            <Select
-              labelId="genre-select-label"
-              id="genre-select"
-              value={genre}
-              label="ジャンル（任意）"
-              onChange={(e) => setGenre(e.target.value)}
-              disabled={isLoading}
-            >
-              <MenuItem value="">未指定</MenuItem>
-              {CATEGORIES.map((cat) => (
-                <MenuItem key={cat.value} value={cat.label}>
-                  {cat.label}
-                </MenuItem>
-              ))}
-            </Select>
-            {fieldErrors.genre && (
-              <FormHelperText>{fieldErrors.genre}</FormHelperText>
-            )}
-          </FormControl>
-
-          {/* トピック入力（自由記述） */}
-          <TextField
-            label="トピック（任意）"
-            placeholder="例: 富士山、相対性理論（本文内の情報に限定して出題されます）"
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-            disabled={isLoading}
-            error={Boolean(fieldErrors.topic)}
-            helperText={
-              fieldErrors.topic
-                ? fieldErrors.topic
-                : `${topic.trim().length}/${TOPIC_MAX_LENGTH}文字`
-            }
-            fullWidth
-          />
-        </Box>
-
         {/* 生成ボタン */}
         <Button
           variant="contained"
           size="large"
-          onClick={handleGenerate}
-          disabled={isLoading || !category}
+          onClick={() => {
+            const activeOptions = tabOptions[inputMode];
+            const request: TabGenerateRequest =
+              inputMode === "category"
+                ? { mode: "category", options: activeOptions }
+                : inputMode === "url"
+                  ? { mode: "url", options: activeOptions }
+                  : { mode: "keyword", keyword, options: activeOptions };
+            handleGenerate(request);
+          }}
+          disabled={
+            inputMode === "category"
+              ? isLoading || !category
+              : inputMode === "url"
+                ? isLoading || !sourceUrl.trim()
+                : isLoading || !keyword.trim()
+          }
           fullWidth
           sx={{ mt: 2 }}
         >
@@ -453,7 +385,16 @@ export default function Home() {
             <Button
               color="inherit"
               size="small"
-              onClick={handleGenerate}
+              onClick={() => {
+                const activeOptions = tabOptions[inputMode];
+                const request: TabGenerateRequest =
+                  inputMode === "category"
+                    ? { mode: "category", options: activeOptions }
+                    : inputMode === "url"
+                      ? { mode: "url", options: activeOptions }
+                      : { mode: "keyword", keyword, options: activeOptions };
+                handleGenerate(request);
+              }}
               disabled={isLoading}
             >
               再試行
