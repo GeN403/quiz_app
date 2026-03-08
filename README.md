@@ -1,1040 +1,159 @@
-# クイズ自動生成アプリ（MVP版）
+﻿# Quiz App
 
-## 概要
-カテゴリを選択すると、AI（Gemini API）がそのカテゴリに関連する競技クイズレベルの問題を自動生成します。生成された問題に回答すると、正誤判定を行い、正解例と解説を表示するクイズアプリケーションです。
+カテゴリ・URL・キーワードからクイズを生成し、回答判定、保存、クイズセット作成までできるアプリです。
 
-## 技術スタック
-- **フロントエンド**: Next.js 15.5.4 + TypeScript + Material UI
-- **バックエンド**: FastAPI (Python) + Google Gemini API
-- **スクレイピング**: BeautifulSoup4
+## 主な機能
+- クイズ生成（カテゴリ / URL / キーワード）
+- 回答判定、解説表示、回答履歴
+- 生成結果の保存（Saved Quizzes）
+- 保存済みクイズ一覧・詳細・削除
+- クイズセット作成・一覧・詳細・削除
 
-## 必要な環境
-- Python 3.12以上
-- Node.js 20以上
-- Gemini APIキー（[こちら](https://aistudio.google.com/app/apikey)から取得）
+## 必要環境
+- Docker Desktop（Windows は WSL2 backend 推奨）
+- または以下のローカル実行環境
+  - Node.js 20+
+  - Python 3.11+
+- Gemini API キー
 
-## 環境変数一覧
-
-### バックエンド（backend/.env）- 必須
-| 変数名 | 説明 | 必須 | デフォルト値 | 取得先 |
-|--------|------|------|--------------|--------|
-| `GEMINI_API_KEY` | Google Gemini APIキー | ✅ | なし | [Google AI Studio](https://aistudio.google.com/app/apikey) |
-
-### フロントエンド環境変数
-Docker Compose 環境では、フロントエンドの環境変数は `docker-compose.yml` で自動設定されます。
-
-| 変数名 | 説明 | 設定場所 | デフォルト値 |
-|--------|------|----------|--------------|
-| `BACKEND_INTERNAL_URL` | バックエンドのコンテナ内部URL | `docker-compose.yml` | `http://backend:8000` |
-
-**注意**:
-- `BACKEND_INTERNAL_URL` は Next.js サーバー側（Route Handler）のみが参照します
-- ブラウザからは BFF パターンのプロキシ API (`/api/generate-quiz`) 経由でアクセスします
-- CORS 問題を回避するため、ブラウザは同一オリジン (`localhost:3000`) にリクエストします
-
-**重要な注意事項**:
-- `.env` ファイルは `.gitignore` で除外されており、**Gitにコミットされません**
-- APIキーなどの機密情報は絶対にGitHubにプッシュしないでください
-- チーム開発時は `.env.example` を共有し、各自で `.env` を作成してください`
-
-
-## リポジトリ構造
-
-```plaintext
-quiz_app/
-├── frontend/                    # Next.js フロントエンド
-│   ├── app/                    # Next.js App Router
-│   │   ├── page.tsx            # UIコンポーネント組み立て
-│   │   ├── hooks/              # カスタムフック (State管理)
-│   │   │   └── useQuizGeneration.ts
-│   │   ├── lib/                # ユーティリティライブラリ
-│   │   │   ├── api.ts          # API呼び出し
-│   │   │   ├── types.ts        # 型定義
-│   │   │   ├── constants.ts    # 定数
-│   │   │   ├── storage.ts      # LocalStorage操作
-│   │   │   └── utils.ts        # ヘルパー関数
-│   │   ├── api/                # Next.js Route Handlers (BFFプロキシ)
-│   │   │   ├── generate-quiz/
-│   │   │   └── resolve-source/
-│   │   └── layout.tsx          # レイアウト
-│   └── ...
-│
-├── backend/                    # FastAPI バックエンド
-│   ├── app/                    # アプリケーションコード（モジュール分割）
-│   │   ├── main.py             # FastAPI本体 (CORS・ルータ統合)
-│   │   ├── api/                # APIルーティング
-│   │   │   ├── router.py       # ルータ統合
-│   │   │   └── routes/         # エンドポイント実装
-│   │   │       ├── resolve_source.py
-│   │   │       └── generate_quiz.py
-│   │   ├── schemas/            # Pydanticモデル
-│   │   │   ├── requests.py
-│   │   │   └── responses.py
-│   │   ├── core/               # コアロジック
-│   │   │   ├── config.py       # アプリ設定
-│   │   │   ├── domain_validator.py
-│   │   │   ├── prompt_builder.py
-│   │   │   └── source_validator.py
-│   │   └── clients/            # 外部APIクライアント
-│   │       └── gemini_client.py
-│   ├── models/                 # データモデル
-│   │   └── quiz.py
-│   ├── services/               # ビジネスロジック
-│   │   └── source_resolver.py
-│   ├── main.py                 # エントリポイント（互換性レイヤー）
-│   ├── requirements.txt        # Python依存関係
-│   ├── .env.example            # 環境変数テンプレート
-│   └── venv/                   # Python仮想環境（セットアップ後）
-│
-├── docker-compose.yml          # Docker Compose設定
-├── package.json                # フロントエンド依存関係
-└── README.md
-```
-
----
-
-## セットアップ手順（10分で完了）
-
-### 1. リポジトリのクローン
-```bash
-git clone https://github.com/GeN403/quiz_app.git
-cd quiz_app
-```
-
-### 2. 環境変数の設定
-
-#### 2-1. バックエンドの環境変数設定（必須）
-```bash
-cd backend
-cp .env.example .env
-```
-
-`.env`ファイルを開き、Gemini APIキーを設定してください：
-```env
-# backend/.env
-GEMINI_API_KEY=あなたのAPIキーをここに貼り付け
-```
-
-**APIキーの取得方法**:
-1. [Google AI Studio](https://aistudio.google.com/app/apikey) にアクセス
-2. 「Create API Key」をクリック
-3. 生成されたAPIキーをコピーして上記の`.env`ファイルに貼り付け
-
-#### 2-2. フロントエンドの環境変数設定
-Docker Compose 環境では、フロントエンドの環境変数は自動設定されるため、手動設定は不要です。
-- `docker-compose.yml` で `BACKEND_INTERNAL_URL=http://backend:8000` が自動設定されます
-- ブラウザは `/api/generate-quiz` (プロキシAPI) 経由でバックエンドにアクセスします
-
-### 3. バックエンドのセットアップ
-
-#### 3-1. 仮想環境の作成とライブラリインストール
-```bash
-cd backend  # まだbackend/にいない場合
-python -m venv venv
-```
-
-**Windowsの場合:**
-```bash
-venv\Scripts\activate
-```
-
-**Mac/Linuxの場合:**
-```bash
-source venv/bin/activate
-```
-
-```bash
-pip install -r requirements.txt
-```
-
-### 4. フロントエンドのセットアップ
-
-ルートディレクトリ（quiz_app/）に戻り、依存関係をインストール：
-```bash
-cd ..  # quiz_app/ に戻る
-npm install
-```
-
----
-
-## 起動方法
-
-### 方法1: Docker Compose で起動（推奨・Windows + Docker Desktop）
-
-Docker Desktop を使用してフロントエンドとバックエンドを同時に起動する方法です。
-
-#### 前提条件
-- Docker Desktop for Windows がインストールされていること
-- WSL2 backend が有効になっていること
-- PowerShell または Git Bash で実行
-
-#### Docker Desktop の確認と設定
-
-まず、Docker Desktop が正しく動作しているか確認します：
+## 初期設定
+### 1. backend の環境変数
+`backend/.env.example` を `backend/.env` にコピーして、`GEMINI_API_KEY` を設定してください。
 
 ```powershell
-# Docker のバージョン確認（Server 情報が表示されることを確認）
-docker version
-
-# Docker の詳細情報を確認
-docker info
-
-# Docker context の確認（desktop-linux が Active であることを確認）
-docker context ls
-```
-
-**注意**: `docker version` で **Server** セクションが表示されない場合、または `open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified.` のようなエラーが出る場合は、以下を確認してください：
-
-1. **Docker Desktop が起動しているか確認**
-   - タスクトレイに Docker アイコンがあるか確認
-   - Docker Desktop を起動していない場合は、スタートメニューから起動
-
-2. **Docker context が desktop-linux になっているか確認**
-   ```powershell
-   # 現在の context を確認
-   docker context ls
-
-   # desktop-linux が Active でない場合は切り替え
-   docker context use desktop-linux
-   ```
-
-3. **WSL2 backend が有効か確認**
-   - Docker Desktop の Settings > General > "Use the WSL 2 based engine" がチェックされているか確認
-
-参考:
-- Docker contexts: https://docs.docker.com/engine/manage-resources/contexts/
-- Docker context use: https://docs.docker.com/reference/cli/docker/context/use/
-- Docker Desktop setup: https://docs.docker.com/desktop/setup/install/linux/
-
-#### 環境変数の設定
-
-```powershell
-# backend/.env を作成
 cd backend
-cp .env.example .env
-# エディタで .env を開き、GEMINI_API_KEY を設定
+Copy-Item .env.example .env
+# .env を開いて GEMINI_API_KEY を設定
 cd ..
 ```
 
-#### Docker Compose で起動
+---
 
+## 推奨起動方法（Docker）
+
+### 1. Docker 基盤の事前確認（Windows + PowerShell）
 ```powershell
-# イメージをビルドしてコンテナを起動
+docker version
+docker info
+docker context ls
+docker context show
+docker compose version
+Get-Service *docker*
+wsl -l -v
+```
+
+正常目安:
+- `docker version` で `Server` が表示される
+- `docker context show` が `desktop-linux`
+- `docker-desktop` (WSL) が利用可能
+
+### 2. 起動
+```powershell
 docker compose up -d --build
-
-# ログを確認
-docker compose logs -f
-
-# 起動状態を確認
-docker compose ps
 ```
 
-**注意**: Docker Compose v2 では `docker-compose.yml` のトップレベル `version:` フィールドは不要です（obsolete として無視されます）。本リポジトリの `docker-compose.yml` は `version:` を削除済みです。
-
-参考:
-- Compose version obsolete: https://github.com/docker/compose/issues/12068
-- Remove obsolete version: https://adamj.eu/tech/2025/05/05/docker-remove-obsolete-compose-version/
-
-#### 疎通確認
-
-PowerShell で API エンドポイントをテストします：
-
-```powershell
-# 1. Backend (FastAPI) の疎通確認
-Invoke-RestMethod -Uri "http://localhost:8000/openapi.json" -Method Get
-
-# 2. Frontend (Next.js) の疎通確認
-Invoke-WebRequest -Uri "http://localhost:3000" -Method Get
-
-# 3. プロキシAPI経由での動作確認（推奨）
-# ブラウザで http://localhost:3000 を開き、生成ボタンをクリック
-# - Network タブで /api/generate-quiz が呼ばれることを確認
-# - "Failed to fetch" エラーが出ないことを確認
-```
-
-**プロキシAPI方式の仕組み**:
-- ブラウザ → `http://localhost:3000/api/generate-quiz` (同一オリジン、CORS不要)
-- Next.js サーバー → `http://backend:8000/generate-quiz` (コンテナ間通信)
-- この方式により、ブラウザからは Docker のサービス名 `backend` を解決できない問題を回避
-
-**PowerShell の curl について**: PowerShell では `curl` は `Invoke-WebRequest` のエイリアスです。Linux/macOS の `curl` コマンドと互換性がないため、PowerShell では `curl.exe` または `Invoke-RestMethod` / `Invoke-WebRequest` を使用してください。
-
-参考:
-- PowerShell curl issue: https://superuser.com/questions/344927/powershell-equivalent-of-curl
-- Invoke-WebRequest: https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.utility/invoke-webrequest
-- Next.js Route Handlers: https://nextjs.org/docs/app/building-your-application/routing/route-handlers
-- Docker Compose networking: https://docs.docker.com/compose/how-tos/networking/
-
-ブラウザで以下にアクセスして確認：
+### 3. 動作確認
 - Frontend: http://localhost:3000
-- Backend API Docs: http://localhost:8000/docs
-
-#### 停止とクリーンアップ
+- Backend Docs: http://localhost:8000/docs
 
 ```powershell
-# コンテナを停止
+docker compose ps
+docker compose logs -f
+```
+
+### 4. 停止
+```powershell
 docker compose down
-
-# コンテナ・ボリューム・イメージを完全削除
-docker compose down -v --rmi all
 ```
 
-#### Docker Compose のトラブルシューティング
-
-##### `open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified.`
-
-このエラーは、Docker Desktop が起動していないか、Docker context が正しく設定されていない場合に発生します。
-
-**切り分け手順**:
-
-1. **Docker Desktop が起動しているか確認**
-   - タスクトレイに Docker アイコンが表示されているか確認
-   - 表示されていない場合は、スタートメニューから "Docker Desktop" を起動
-
-2. **docker version で Server 情報が表示されるか確認**
-   ```powershell
-   docker version
-   ```
-
-   **期待される出力**:
-   ```
-   Client:
-     Version:           ...
-     ...
-
-   Server: Docker Desktop ...
-     Engine:
-       Version:         ...
-   ```
-
-   **NG な出力** (Server セクションが無い、またはエラーが表示される):
-   ```
-   error during connect: Get "http://%2F%2F.%2Fpipe%2FdockerDesktopLinuxEngine/v1.24/version": open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified.
-   ```
-
-3. **docker context が desktop-linux になっているか確認**
-   ```powershell
-   docker context ls
-   ```
-
-   **期待される出力**:
-   ```
-   NAME                TYPE                DESCRIPTION                               DOCKER ENDPOINT
-   default             moby                Current DOCKER_HOST based configuration   npipe:////./pipe/docker_engine
-   desktop-linux    *  moby                Docker Desktop                            npipe:////./pipe/dockerDesktopLinuxEngine
-   ```
-
-   `desktop-linux` の左に `*` (Active) が付いていることを確認。付いていない場合は：
-   ```powershell
-   docker context use desktop-linux
-   ```
-
-4. **WSL2 backend が有効か確認**
-   - Docker Desktop を開く
-   - Settings (⚙️) > General
-   - "Use the WSL 2 based engine" にチェックが入っているか確認
-   - チェックが外れている場合は、チェックを入れて "Apply & Restart"
-
-5. **Docker Desktop を再起動**
-   - タスクトレイの Docker アイコンを右クリック > "Restart"
-   - または、Docker Desktop を完全に終了して再起動
-
-6. **それでも解決しない場合**
-   - Windows を再起動
-   - Docker Desktop を再インストール
-
-##### `docker compose` コマンドが見つからない
-
-**エラー**: `docker: 'compose' is not a docker command.`
-
-**原因**: Docker Compose v1 (docker-compose) がインストールされているが、v2 (docker compose) がインストールされていない
-
-**解決方法**:
-- Docker Desktop を最新版にアップデート（v2 は Docker Desktop に含まれています）
-- または、`docker-compose` (ハイフンあり) コマンドを使用：
-  ```powershell
-  docker-compose up -d --build
-  ```
+### 5. コンテナ/volume を含めて初期化
+```powershell
+docker compose down -v
+```
 
 ---
 
-### 方法2: 手動起動（ローカル環境）
+## Docker トラブルシューティング
 
-Docker を使わずに、ローカル環境で直接起動する方法です。
+### A. `open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified`
+Docker daemon 接続前で失敗しています（compose や Dockerfile の問題ではありません）。
 
-#### ターミナル1: バックエンド起動
-```bash
+復旧優先順:
+1. Docker Desktop 起動確認
+2. Linux Containers モード確認
+3. `docker context use desktop-linux`
+4. `wsl --shutdown` 実行後に Docker Desktop 再起動
+5. Windows 再起動
+
+### B. `Module not found: Can't resolve '@radix-ui/react-tabs'`（Docker実行時）
+古い `node_modules` volume が残っている可能性があります。
+
+```powershell
+docker compose down -v
+docker compose build --no-cache frontend
+docker compose up -d frontend
+```
+
+---
+
+## ローカル起動方法（Dockerを使わない場合）
+
+### 1. Backend
+```powershell
 cd backend
-venv\Scripts\activate  # Windowsの場合
-# source venv/bin/activate  # Mac/Linuxの場合
-uvicorn main:app --reload
-```
-→ `http://localhost:8000` でAPIサーバーが起動します
-→ `http://localhost:8000/docs` でAPI仕様書（Swagger UI）を確認できます
-
-**💡 アーキテクチャ補足**:
-- `backend/main.py` は互換性レイヤー（エントリポイント）として機能
-- 実際のアプリケーションコードは `backend/app/` 配下にモジュール分割されています
-- `uvicorn main:app` で起動すると、内部的に `backend/app/main.py` の FastAPI アプリが読み込まれます
-- この設計により、既存の起動コマンドを変更せずにコードの保守性を向上させています
-
-### ターミナル2: フロントエンド起動
-```bash
-# quiz_app/ のルートディレクトリで実行
-npx next dev frontend --turbopack
-```
-→ `http://localhost:3000` でWebアプリが起動します
-
----
-
-## API仕様（バックエンド）
-
-FastAPIは、バックエンドサーバー起動時に自動的にAPI仕様書（Swagger UI）を生成します。
-
-### Swagger UIへのアクセス
-バックエンドサーバー起動後、ブラウザで以下のURLにアクセスしてください：
-
-**`http://localhost:8000/docs`**
-
-ここで、APIエンドポイント、リクエスト/レスポンス形式、パラメータの詳細を確認できます。
-
-### APIエンドポイント一覧
-
-#### POST /generate-quiz
-カテゴリに基づいてクイズを生成するメインエンドポイント
-
-**リクエスト例**:
-```json
-{
-  "category": "history"
-}
-```
-
-**利用可能なカテゴリ**:
-- `history` (歴史)
-- `science` (科学)
-- `literature` (文学)
-- `geography` (地理)
-- `sports` (スポーツ)
-- `arts` (芸術)
-- `general` (一般知識)
-
-**レスポンス例**:
-```json
-{
-  "question": "1582年に起きた本能寺の変で、織田信長を討った武将は誰か？",
-  "answer": "明智光秀",
-  "Alternative Solutions/Correctness Judgment Criteria": "「明智光秀」が正解。「光秀」のみでも可。",
-  "explanation": "本能寺の変は、1582年6月2日に京都の本能寺で起きた...",
-  "source": {
-    "title": "本能寺の変 - Wikipedia",
-    "url": "https://ja.wikipedia.org/wiki/本能寺の変"
-  }
-}
-```
-
-**エラーレスポンス例**:
-- **401 Unauthorized**: Gemini APIキーが無効
-- **429 Too Many Requests**: APIリクエスト制限超過
-- **503 Service Unavailable**: Gemini APIサービス障害
-
-### バックエンドの責務
-FastAPIバックエンドは以下の責務を担います：
-1. **クイズ生成**: カテゴリに基づいてGemini APIを呼び出し、競技クイズレベルの問題を生成
-2. **エラーハンドリング**: Gemini API関連のエラーを適切に検出し、ユーザーフレンドリーなエラーメッセージを返す
-3. **CORS設定**: フロントエンド（localhost:3000）からのリクエストを許可
-
----
-
-## API動作確認（PowerShell / Windows環境）
-
-Windows PowerShell環境でバックエンドAPIを直接テストする方法を説明します。
-
-### 前提条件
-- バックエンドが起動していること（`http://localhost:8000`）
-- PowerShellの`curl`エイリアスは`Invoke-WebRequest`のため、`curl.exe`または`Invoke-RestMethod`を使用
-
-### 文字化け対策（必要な場合）
-
-#### main.pyの日本語が崩れる場合
-```powershell
-Get-Content backend/main.py -Encoding UTF8 | Select-String "validate_sources"
-```
-
-#### PowerShellの出力が文字化けする場合
-```powershell
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-```
-
-### Invoke-RestMethod を使ったテスト
-
-#### 正常系: カテゴリモード
-```powershell
-$body = @{
-    category = "history"
-    source_type = "category"
-    question_count = 1
-} | ConvertTo-Json
-
-Invoke-RestMethod -Uri "http://localhost:8000/generate-quiz" `
-    -Method POST `
-    -ContentType "application/json" `
-    -Body $body
-```
-
-**期待される結果**:
-- HTTPステータス: 200 OK
-- source.url: `https://kotobank.jp/...` または `"参照URLを提示できません"`
-- source.quote: 任意（あってもなくてもOK）
-
-#### 正常系: URLモード
-```powershell
-$body = @{
-    category = "history"
-    source_type = "url"
-    source_value = "https://kotobank.jp/word/%E6%A1%9C%E7%94%B0%E9%96%80%E5%A4%96%E3%81%AE%E5%A4%89-68811"
-    question_count = 1
-} | ConvertTo-Json
-
-Invoke-RestMethod -Uri "http://localhost:8000/generate-quiz" `
-    -Method POST `
-    -ContentType "application/json" `
-    -Body $body
-```
-
-**期待される結果**:
-- HTTPステータス: 200 OK
-- source.url: 入力URLと一致
-- source.quote: **必須**（30文字以上）
-
-### curl.exe を使ったテスト
-
-#### 正常系: カテゴリモード
-```powershell
-curl.exe -X POST http://localhost:8000/generate-quiz `
-    -H "Content-Type: application/json" `
-    -d '{\"category\": \"history\", \"source_type\": \"category\", \"question_count\": 1}'
-```
-
-#### 正常系: URLモード
-```powershell
-curl.exe -X POST http://localhost:8000/generate-quiz `
-    -H "Content-Type: application/json" `
-    -d '{\"category\": \"history\", \"source_type\": \"url\", \"source_value\": \"https://kotobank.jp/word/%E6%A1%9C%E7%94%B0%E9%96%80%E5%A4%96%E3%81%AE%E5%A4%89-68811\", \"question_count\": 1}'
-```
-
-### 検証条件まとめ
-
-| モード | source.url | source.quote | HTTPステータス |
-|--------|-----------|--------------|---------------|
-| カテゴリ | `https://kotobank.jp/...`（許可ドメイン） | 任意 | 200 OK |
-| カテゴリ | `"参照URLを提示できません"` | 任意 | 200 OK（URL検証スキップ） |
-| カテゴリ | `https://wikipedia.org/...`（許可外） | - | 400 Bad Request |
-| URL | 入力URLと一致 | **必須**（30文字以上） | 200 OK |
-| URL | 入力URLと不一致 | - | 400 Bad Request |
-| URL | - | 欠落または30文字未満 | 400 Bad Request |
-
-### 手動コード確認コマンド
-
-#### validate_sources が使用されているか確認
-```powershell
-Select-String -Path backend/main.py -Pattern "validate_sources" -SimpleMatch
-```
-
-**期待される出力**: 複数行（関数定義と呼び出し箇所）
-
-#### validate_urls_in_response が generate_quiz から削除されたか確認
-```powershell
-# generate_quiz 関数内でのvalidate_urls_in_responseの呼び出しを検索
-Get-Content backend/main.py -Encoding UTF8 | Select-String -Pattern "validate_urls_in_response\(final_text\)" -SimpleMatch
-```
-
-**期待される出力**: 何も表示されない（削除されているため）
-
-### 自動検証スクリプト
-
-詳細は `backend/scripts/validate_api.ps1` を参照してください。
-
-```powershell
-# 実行方法
-cd backend
-.\scripts\validate_api.ps1
-```
-
----
-
-## 動作確認手順
-
-ブラウザで `http://localhost:3000` を開き、以下の手順で動作を確認してください：
-
-### 1. カテゴリの選択
-画面上部に「カテゴリを選択してクイズを生成」というセクションが表示されます。
-プルダウンメニューから以下のいずれかのカテゴリを選択します：
-
-- 歴史
-- 科学
-- 文学
-- 地理
-- スポーツ
-- 芸術
-- 一般知識
-
-### 2. 生成オプションの設定（任意）
-カテゴリ選択後、以下のオプションを設定できます：
-
-#### URL指定（任意）
-- **説明**: URLを指定すると、そのページの内容を元に問題を生成します
-- **例**: `https://kotobank.jp/word/...`
-- **注意**: URL未入力の場合は、カテゴリに基づいて問題を生成します
-- **制限**: 許可された参照元（コトバンク、公式サイト）のURLのみ使用可能
-
-#### 問題数指定
-- **範囲**: 1〜5問
-- **デフォルト**: 1問
-- **複数問生成時**: 生成後、「前へ」「次へ」ボタンで問題を切り替えできます
-
-### 3. クイズ生成
-「生成」ボタンをクリックします。
-- ボタンが「生成中...」に変わり、スピナーが表示されます
-- 生成中はボタンとカテゴリ選択が無効化され、連打しても二重送信されません
-- AI がクイズを生成します（約5〜15秒、複数問の場合はさらに時間がかかる場合があります）
-- カテゴリ未選択の場合は、エラーメッセージが表示されます
-
-### 4. 問題文の確認と回答
-生成が成功すると、以下が表示されます：
-- **問題文**: グレーの背景のボックスに問題が表示されます
-- **回答入力フォーム**: 「あなたの回答」欄に答えを入力できます
-- **回答するボタン**: 回答を送信して正誤判定を行います
-- **複数問の場合**: 画面上部に「問題 X / Y」と進捗が表示され、「前へ」「次へ」ボタンで問題を切り替えできます
-
-### 5. 回答の送信
-回答入力フォームに答えを入力して「回答する」ボタンをクリックします。
-- Enterキーでも送信可能です
-- 文字数カウンタが表示されます（例：「10/200文字」）
-- **入力バリデーション**:
-  - 回答が空の場合: エラーメッセージが表示され、送信できません
-  - 200文字を超える場合: エラーメッセージが表示され、送信できません
-  - 入力フィールドは最大200文字まで入力可能です
-
-### 6. 正誤判定と正解例の表示
-回答を送信すると、以下が自動的に表示されます：
-- **判定結果**: 正解/不正解が色付きのボックスで表示されます
-  - 正解: 緑色の背景
-  - 不正解: 赤色の背景
-- **あなたの回答**: 送信した回答が表示されます
-- **想定解答（正解例）**: 緑の背景のボックスに正解が表示されます
-- **別解/正誤判定基準**: 代替の正解や判定の基準
-- **解説**: 問題の詳しい説明
-- **出典**: 参考情報へのリンク
-
-### 7. 履歴の確認
-「履歴を見る」ボタンをクリックすると、過去の回答履歴が時系列で表示されます：
-- 回答日時
-- カテゴリ
-- 正誤結果（正解: 緑色背景、不正解: 赤色背景）
-- 問題文
-- あなたの回答
-- 正解（不正解の場合のみ表示）
-
-**履歴のクリア**: 履歴エリア右上の「履歴をクリア」ボタンで全履歴を削除できます。
-
-### 8. 再度クイズ生成
-別のカテゴリを選択して、再度クイズを生成できます。
-
----
-
-## 履歴機能（LocalStorage仕様）
-
-### 保存仕様
-- **保存場所**: ブラウザのLocalStorage（ブラウザ内部のストレージ）
-- **保存キー名**: `quiz_app_history`
-- **保存データ**: 問題文、想定解答、ユーザーの回答、正誤、カテゴリ、回答日時
-- **保存上限**: 最大100件（古い履歴から自動削除）
-- **保存期間**: ブラウザのLocalStorageに依存（ブラウザのキャッシュをクリアするまで永続）
-
-### プライバシー情報
-- 履歴データはブラウザのLocalStorageにのみ保存され、サーバーには送信されません
-- 同じブラウザでのみ履歴を確認できます（別のブラウザやデバイスでは共有されません）
-- ブラウザのキャッシュやCookieをクリアすると、履歴も削除されます
-
-### 履歴のクリア方法
-1. **アプリ内でクリア**: 履歴表示エリアの「履歴をクリア」ボタンをクリック
-2. **ブラウザでクリア**:
-   - Chrome: 設定 > プライバシーとセキュリティ > 閲覧履歴データの削除 > Cookieと他のサイトデータ
-   - Firefox: オプション > プライバシーとセキュリティ > Cookieとサイトデータ > データを消去
-   - Edge: 設定 > プライバシー、検索、サービス > 閲覧データをクリア
-3. **開発者ツールでクリア**:
-   - F12キーで開発者ツールを開く
-   - Applicationタブ > Local Storage > localhost:3000 > `quiz_app_history` を削除
-
----
-
-## 回答入力バリデーション
-
-アプリケーションは、デモ時の誤操作や不適切な入力を防ぐため、回答入力に対して以下のバリデーションを実施しています：
-
-### 空回答の防止
-- **検証内容**: 回答が空（空文字列または空白のみ）の場合、送信を拒否
-- **エラーメッセージ**: 「回答を入力してください。」
-- **挙動**: 送信ボタンをクリックしても送信されず、エラーメッセージが表示される
-
-### 長文回答の制限
-- **文字数上限**: 200文字
-- **検証内容**: 回答が200文字を超える場合、送信を拒否
-- **エラーメッセージ**: 「回答は200文字以内で入力してください。（現在: XXX文字）」
-- **入力制限**: TextFieldの`maxLength`属性により、200文字を超える入力が防止される
-- **文字数カウンタ**: 入力フィールドの下に「XX/200文字」と表示され、リアルタイムで文字数を確認可能
-
-### 入力中の視覚的フィードバック
-- 文字数が200文字を超えた場合、入力フィールドがエラー状態（赤枠）になる
-- 文字数カウンタが常に表示され、残り文字数を把握できる
-
-### 受入条件の確認
-✅ **Given** 空回答 **When** 送信 **Then** 送信されず案内が表示される
-✅ **Given** 201文字の回答 **When** 送信 **Then** 送信されず案内が表示される
-
----
-
-## ローディング状態と二重送信防止
-
-アプリケーションは、クイズ生成中の誤操作を防ぐため、以下の保護機能を実装しています：
-
-### 生成中の動作制御
-- **ボタンの無効化**: クイズ生成中は「生成」ボタンが自動的に無効化され、クリックできなくなります
-- **視覚的フィードバック**: ボタンにスピナーと「生成中...」のテキストが表示されます
-- **カテゴリ選択の無効化**: 生成中はカテゴリの変更ができません
-- **回答入力の無効化**: 生成中は回答入力フォームと回答ボタンが無効化されます
-
-### 二重送信防止
-- **関数レベルのガード**: `handleGenerate` 関数内で既にローディング中の場合は処理を中断します
-- **UI レベルのガード**: ボタンの `disabled` 属性により、連打しても1回のリクエストしか送信されません
-- **完了時の解除**: 生成成功・失敗いずれの場合も、必ずローディング状態が解除されます
-
-### 動作確認方法
-1. カテゴリを選択して「生成」ボタンをクリック
-2. 生成中にボタンを連打しても、追加のリクエストは送信されない
-3. 生成完了後、ボタンが再び有効化される
-
----
-
-## エラーハンドリング
-
-アプリケーションは以下のエラーを適切に検出し、ユーザーフレンドリーなメッセージを表示します：
-
-### バックエンド未起動・接続不可
-**症状**: 「生成」ボタンをクリックしてもクイズが生成されず、エラーメッセージが表示される
-
-**表示されるメッセージ**:
-```
-バックエンドサーバーに接続できません。サーバーが起動しているか確認してください。
-起動方法: backend/ で「uvicorn main:app --reload」を実行
-```
-
-**対処方法**:
-1. バックエンドが起動しているか確認
-2. 起動していない場合は、上記の「起動方法」セクションを参照してバックエンドを起動
-3. エラーメッセージ内の「再試行」ボタンをクリックして再実行
-
-### タイムアウトエラー
-**症状**: 30秒以上応答がない場合
-
-**表示されるメッセージ**:
-```
-リクエストがタイムアウトしました。ネットワーク接続を確認するか、時間をおいて再度お試しください。
-```
-
-**対処方法**:
-- ネットワーク接続を確認
-- 対象のWebページが重すぎる可能性があるため、別のURLを試す
-- 「再試行」ボタンをクリック
-
-### サーバーエラー（5xx）
-**表示されるメッセージ**:
-```
-バックエンドサーバーでエラーが発生しました。時間をおいて再度お試しください。
-```
-
-**対処方法**:
-- バックエンドのターミナルでエラーログを確認
-- 時間をおいて再試行
-- 環境変数（`GEMINI_API_KEY`）が正しく設定されているか確認
-
-### 無効なURL（400）
-**表示されるメッセージ**:
-```
-入力されたURLが無効です。正しいURLを入力してください。
-```
-
-**対処方法**:
-- URLの形式が正しいか確認（`http://` または `https://` で始まる必要があります）
-- アクセス可能なWebページか確認
-
-### Gemini APIキー未設定
-**症状**: クイズ生成時にAPIキー関連のエラーメッセージが表示される
-
-**表示されるメッセージ**:
-```
-Gemini APIキーが設定されていません。
-管理者にお問い合わせください。
-
-開発者向け: backend/.envファイルにGEMINI_API_KEYを設定してください。
-```
-
-**対処方法**:
-1. バックエンドターミナルで警告メッセージを確認
-   ```
-   [WARNING] GEMINI_API_KEY が設定されていません。
-   ```
-2. `backend/.env` ファイルを作成または編集
-3. [Google AI Studio](https://aistudio.google.com/app/apikey) からAPIキーを取得
-4. `.env` ファイルに設定:
-   ```env
-   GEMINI_API_KEY=your_actual_api_key_here
-   ```
-5. バックエンドを再起動
-
-### Gemini APIキー無効
-**症状**: 正しく設定したはずのAPIキーが認証エラーになる
-
-**表示されるメッセージ**:
-```
-Gemini APIキーが無効です。
-管理者にお問い合わせください。
-```
-
-**対処方法**:
-- APIキーが正しくコピーされているか確認（前後に空白がないか）
-- APIキーの有効期限が切れていないか確認
-- Google AI Studioで新しいAPIキーを発行して再設定
-
-### Gemini APIレート制限
-**症状**: 短時間に多くのリクエストを送信した場合
-
-**表示されるメッセージ**:
-```
-Gemini APIのリクエスト制限に達しました。
-しばらく待ってから再度お試しください。
-```
-
-**対処方法**:
-- 数分待ってから再試行
-- 無料枠を使い切った場合は、翌日まで待つか有料プランへの移行を検討
-
-### Gemini AIサービス障害
-**症状**: Gemini API側で障害が発生している場合
-
-**表示されるメッセージ**:
-```
-Gemini AIサービスが一時的に利用できません。
-しばらく待ってから再度お試しください。
-```
-
-**対処方法**:
-- しばらく待ってから再試行
-- [Google Cloud Status Dashboard](https://status.cloud.google.com/) でサービス状態を確認
-- 長時間続く場合は管理者に報告
-
-### 参照元制約違反
-**症状**: クイズ生成時に参照元が許可リストに含まれていない場合
-
-**表示されるメッセージ**:
-```
-参照元が制限（コトバンク/公式サイト）に一致しないため、生成結果を表示できません。
-別のカテゴリで再試行してください。
-```
-
-**対処方法**:
-- 別のカテゴリを選択して再試行
-- 同じエラーが繰り返し発生する場合は管理者に報告
-
----
-
-## 参照元制限（情報源の信頼性確保）
-
-このアプリケーションは、クイズの参照元（情報源）を信頼できるサイトに制限することで、情報の正確性を確保しています。
-
-### 許可される参照元
-以下のドメインのみが参照元として許可されています：
-
-1. **コトバンク**: `https://kotobank.jp`
-   - 信頼できる百科事典・辞書サイト
-2. **政府系公式サイト**: `*.go.jp`
-   - 各省庁、自治体などの公式サイト
-3. **学術機関**: `*.ac.jp`
-   - 大学、研究機関などの公式サイト
-4. **追加許可ドメイン**: `backend/config/allowed_domains.json` で管理
-   - 企業公式サイトなど、管理者が追加したドメイン
-
-### 禁止される参照元
-以下のサイトは参照元として使用できません：
-- 個人ブログ
-- まとめサイト
-- SNS（Twitter、Facebook等）
-- Q&Aサイト（Yahoo!知恵袋、Quora等）
-- その他、信頼性が確認できないサイト
-
-### 検証の仕組み
-1. **プロンプトレベル**: Gemini AIに対して、許可された参照元のみを使用するよう指示
-2. **バックエンドレベル**: 生成結果に含まれるURLを自動検証
-   - 許可外URLが検出された場合、結果を返さずにエラーを返す
-   - 違反URLはサーバーログに記録される
-
-### 追加ドメインの設定方法
-管理者は `backend/config/allowed_domains.json` を編集することで、追加のドメインを許可できます：
-
-```json
-{
-  "additional_domains": [
-    "example.com",
-    "company-official.co.jp"
-  ]
-}
-```
-
-**注意**: ドメインは `example.com` の形式で記載してください（`https://` や `www.` は不要）。
-
-### 受入条件の確認
-✅ **Given** kotobank.jp のURLのみ含まれる **When** 生成APIを呼ぶ **Then** 通常どおり結果が表示される
-✅ **Given** 許可外ドメインURL が含まれる **When** 生成APIを呼ぶ **Then** バックは400で返し、フロントはユーザー向け説明を表示する
-✅ **Given** allowed_domains.json に example.com を追加 **When** 生成結果に https://example.com が含まれる **Then** 許可される
-
----
-
-## トラブルシューティング
-
-### ❌ エラー: `Could not import module "main"`
-**原因**: ルートディレクトリ (`quiz_app/`) で `uvicorn main:app --reload` を実行している
-
-**解決方法**: 必ず `backend/` ディレクトリに移動してから実行してください
-```bash
-cd backend
-uvicorn main:app --reload
-```
-
-### ❌ エラー: `TypeError: Failed to fetch` (フロントエンド)
-**症状**: Next.jsのブラウザコンソールに「TypeError: Failed to fetch」が表示され、クイズ生成が失敗する
-
-**原因1**: Docker Compose 環境でブラウザが `http://backend:8000` に直接アクセスしようとしている
-- **根本原因**: ブラウザ（ホストPC）からは Docker のサービス名 `backend` を解決できない
-- **解決済み**: プロキシAPI方式（BFF パターン）を実装済み
-  - ブラウザ → `/api/generate-quiz` (同一オリジン)
-  - Next.js サーバー → `http://backend:8000/generate-quiz` (コンテナ間通信)
-
-**原因2**: バックエンド（FastAPI）が500 Internal Server Errorを返している
-- **根本原因**: Windows環境でPythonの`print()`関数が絵文字（例: 📄, ✅, ❌）を出力しようとすると、デフォルトのcp932エンコーディングで処理できずUnicodeEncodeErrorが発生
-- **解決済み**: `backend/main.py`のprint文から絵文字を削除し、シンプルなテキスト（`[INFO]`, `[OK]`, `[ERROR]`）に置き換え済み
-
-**確認方法**:
-```powershell
-# 1. Backend が正常に動作しているか確認
-Invoke-RestMethod -Uri "http://localhost:8000/openapi.json" -Method Get
-
-# 2. ブラウザで http://localhost:3000 を開き、Network タブで確認
-# - /api/generate-quiz が呼ばれること（ /generate-quiz ではない）
-# - "Failed to fetch" が出ないこと
-```
-
-### ❌ 複数の仮想環境（venv）が混在している
-**症状**: `.venv/` と `backend/venv/` の両方が存在する
-
-**推奨**: `backend/venv/` を使用してください
-- `.venv/` は削除しても問題ありません（または無視してください）
-- `.gitignore` で両方とも無視されるよう設定済みです
-
-**正しい手順**:
-```bash
-cd backend
-# 仮想環境が存在しない場合のみ作成
 python -m venv venv
-
-# 仮想環境を有効化
-venv\Scripts\activate  # Windows
-# source venv/bin/activate  # Mac/Linux
-
-# 依存関係をインストール
-pip install -r requirements.txt
-
-# サーバー起動
-uvicorn main:app --reload
-```
-
-### ❌ 環境変数が設定されていない
-**症状**: バックエンド起動時に「GEMINI_API_KEY is not set」などのエラーが表示される
-
-**解決方法**:
-1. `backend/.env` ファイルが存在するか確認
-   ```bash
-   ls backend/.env  # ファイルが存在するか確認
-   ```
-2. 存在しない場合は `.env.example` からコピー
-   ```bash
-   cd backend
-   cp .env.example .env
-   ```
-3. `.env` ファイルを開き、APIキーを設定
-   ```env
-   GEMINI_API_KEY=your_actual_api_key_here
-   ```
-4. APIキーが正しく設定されているか確認
-   ```bash
-   cat backend/.env  # 内容を確認（Windowsの場合: type backend\.env）
-   ```
-
-### バックエンドが起動しない
-- `GEMINI_API_KEY` が正しく設定されているか確認（上記参照）
-- `backend/.env` ファイルが存在するか確認
-- 仮想環境が有効化されているか確認（`(venv)` がターミナルに表示される）
-- **作業ディレクトリが `backend/` であることを確認**
-
-### フロントエンドが起動しない
-- `npm install` が完了しているか確認
-- Node.js のバージョンが 20 以上か確認: `node -v`
-
-### クイズ生成時にエラーが出る
-- バックエンド（`http://localhost:8000`）が起動しているか確認
-- ブラウザの開発者ツール（F12）でエラーメッセージを確認
-- バックエンドのターミナルでエラーログを確認
-
----
-
-## 📩 Author
-**GeN403**
-GitHub: [https://github.com/GeN403](https://github.com/GeN403)
-
----
-
-## 最新のローカル起動手順（実動確認済み）
-
-以下は Docker を使わずに、Windows ローカルで安定して起動する手順です。
-
-### 1. バックエンド起動（`backend/venv` を使用）
-
-```powershell
-cd backend
 .\venv\Scripts\Activate.ps1
-uvicorn app.main:app --reload --port 8000
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
 ```
 
-- API Docs: `http://127.0.0.1:8000/docs`
-- 注意: `.venv` と `backend/venv` が混在している場合は、`backend/venv` を優先してください。
-
-### 2. フロントエンド起動（`frontend` 配下で実行）
-
+### 2. Frontend
 ```powershell
 cd frontend
 npm install
 npm run dev
 ```
 
-- フロントURL: `http://localhost:3000`
-- 注意: `quiz_app` ルートで `npm run dev` を実行すると、`pages/app directory` エラーになる場合があります。
+- Frontend: http://localhost:3000
+- Backend Docs: http://localhost:8000/docs
 
-### 3. フロント→バックエンド接続先（ローカル）
-
-`frontend/.env.local` に以下を設定してください。
-
+必要に応じて `frontend/.env.local` を作成:
 ```env
 BACKEND_INTERNAL_URL=http://127.0.0.1:8000
 ```
 
-- 未設定時のデフォルトも `http://127.0.0.1:8000` ですが、明示設定を推奨します。
+注意:
+- Next.js は `frontend` ディレクトリで実行してください（ルートで `npm run dev` しない）。
+
+---
+
+## Latest UI Updates
+- Added top navigation links on Home:
+  - `Saved Quizzes`
+  - `Quiz Sets`
+  - `Local Battle`
+- Added `SaveButton` in the quiz display area
+- Added local battle navigation in quiz set pages:
+  - `/quiz-sets`: `Local Battle` button
+  - `/quiz-sets/[id]`: `Battle with this Set` button
+
+### Save to Battle Flow
+1. Generate a quiz on Home
+2. Save with `SaveButton`
+3. Confirm in `Saved Quizzes`
+4. Create a set in `Quiz Sets`
+5. Start local battle from one of these paths:
+   - Home `Local Battle`
+   - `Quiz Sets` `Local Battle`
+   - `Quiz Set Detail` `Battle with this Set`
+
+Notes:
+- Save is enabled only when the generated result has `package_id`
+- From quiz set detail, `setId` query is passed and auto-selection runs in `/local-battle`
+
+---
+
+## ディレクトリ（主要）
+- `frontend/` : Next.js アプリ
+- `backend/` : FastAPI アプリ
+- `docker-compose.yml` : 開発用 compose 設定

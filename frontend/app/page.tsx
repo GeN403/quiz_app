@@ -2,6 +2,7 @@
 
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import {
   Box,
@@ -30,6 +31,8 @@ import {
   type Difficulty,
   type QuizLength,
 } from "../components/quiz/QuizOptionsFields";
+import { SaveButton } from "./components/SaveButton";
+import type { GenerationInputParams } from "./lib/savedQuizzesApi";
 
 type InputMode = "category" | "url" | "keyword";
 
@@ -80,6 +83,8 @@ export default function Home() {
     quiz,
     questions,
     currentQuestionIndex,
+    answerPackage,
+    lastInputParams,
     resolvedSource,
     selectedQuote,
     setSelectedQuote,
@@ -117,6 +122,17 @@ export default function Home() {
       <Typography variant="h4" component="h1" gutterBottom>
         クイズ自動生成プロトタイプ
       </Typography>
+      <Box sx={{ width: "100%", maxWidth: "700px", display: "flex", justifyContent: "flex-end", gap: 1 }}>
+        <Link href="/saved-quizzes" passHref>
+          <Button variant="outlined" size="small">Saved Quizzes</Button>
+        </Link>
+        <Link href="/quiz-sets" passHref>
+          <Button variant="outlined" size="small">Quiz Sets</Button>
+        </Link>
+        <Link href="/local-battle" passHref>
+          <Button variant="outlined" size="small">Local Battle</Button>
+        </Link>
+      </Box>
 
       {/* --- カテゴリ選択エリア --- */}
       <Paper
@@ -460,6 +476,12 @@ export default function Home() {
               {quiz.question}
             </Typography>
           </Paper>
+          <Box sx={{ mt: 2 }}>
+            <SaveButton
+              answerPackage={answerPackage}
+              inputParams={lastInputParams as GenerationInputParams | null}
+            />
+          </Box>
 
           {/* 回答入力エリア */}
           {judgmentResult === null && (

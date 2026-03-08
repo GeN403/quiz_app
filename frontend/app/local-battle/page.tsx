@@ -1,6 +1,8 @@
 ﻿'use client';
 
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { useEffect, useRef } from 'react';
 import {
   Alert,
   Box,
@@ -17,6 +19,29 @@ import { useLocalBattleController } from '../hooks/useLocalBattleController';
 
 export default function LocalBattlePage() {
   const controller = useLocalBattleController();
+  const searchParams = useSearchParams();
+  const presetSetId = searchParams.get('setId');
+  const autoSelectedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!presetSetId) return;
+    if (controller.phase !== 'set_selection') return;
+    if (controller.isLoadingSets || controller.isPreparing) return;
+    if (autoSelectedRef.current === presetSetId) return;
+
+    const target = controller.setItems.find((item) => item.setId === presetSetId);
+    if (!target) return;
+
+    autoSelectedRef.current = presetSetId;
+    void controller.selectSet(target.setId, target.setName);
+  }, [
+    controller.isLoadingSets,
+    controller.isPreparing,
+    controller.phase,
+    controller.selectSet,
+    controller.setItems,
+    presetSetId,
+  ]);
 
   const answererName =
     controller.currentAnswerer === null

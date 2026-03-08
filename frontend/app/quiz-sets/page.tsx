@@ -62,6 +62,9 @@ export default function QuizSetsPage() {
           <Link href="/quiz-sets/new" passHref>
             <Button variant="contained" size="small">新規作成</Button>
           </Link>
+          <Link href="/local-battle" passHref>
+            <Button variant="outlined" size="small">Local Battle</Button>
+          </Link>
           <Link href="/" passHref>
             <Button variant="outlined" size="small">← ホームへ戻る</Button>
           </Link>

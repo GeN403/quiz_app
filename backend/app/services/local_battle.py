@@ -21,6 +21,8 @@ class BattleQuestionClassifier:
 
         choices = self._extract_choices(answer_package.get("choices"))
         if len(choices) < 2:
+            choices = self._build_fallback_choices(answer_package)
+        if len(choices) < 2:
             return None
 
         correct_choice_id = self._resolve_correct_choice_id(answer_package, choices)
@@ -42,6 +44,10 @@ class BattleQuestionClassifier:
                 stripped = value.strip()
                 if stripped:
                     return stripped
+            if isinstance(value, Mapping):
+                nested = self._pick_string(value, ("text", "value", "label"))
+                if nested:
+                    return nested
         return None
 
     def _extract_choices(self, raw_choices: object) -> list[BattleChoice]:
@@ -64,6 +70,43 @@ class BattleQuestionClassifier:
             choices.append(BattleChoice(choice_id=choice_id, text=choice.text))
 
         return choices
+
+    def _build_fallback_choices(self, answer_package: Mapping[str, object]) -> list[BattleChoice]:
+        """Build fallback choices when `choices` is missing."""
+        answer_text = self._extract_answer_text(answer_package)
+        if answer_text is None:
+            return []
+
+        choices = [BattleChoice(choice_id="correct", text=answer_text)]
+        for index, candidate in enumerate(self._build_distractor_candidates(answer_text), start=1):
+            if candidate == answer_text:
+                continue
+            if any(existing.text == candidate for existing in choices):
+                continue
+            choices.append(BattleChoice(choice_id=f"fallback-{index}", text=candidate))
+            if len(choices) >= 4:
+                break
+
+        return choices if len(choices) >= 2 else []
+
+    def _extract_answer_text(self, answer_package: Mapping[str, object]) -> str | None:
+        raw_answer = answer_package.get("answer")
+
+        if isinstance(raw_answer, str):
+            stripped = raw_answer.strip()
+            return stripped or None
+
+        if isinstance(raw_answer, Mapping):
+            return self._pick_string(raw_answer, ("text", "value", "label"))
+
+        return None
+
+    def _build_distractor_candidates(self, answer_text: str) -> list[str]:
+        if answer_text.isdigit():
+            value = int(answer_text)
+            return [str(value + 1), str(value - 1 if value > 0 else 1), "0"]
+
+        return ["None of the above", "Unknown", "Other"]
 
     def _normalize_choice(self, raw_choice: object, index: int) -> BattleChoice | None:
         default_choice_id = f"choice-{index}"
@@ -114,10 +157,15 @@ class BattleQuestionClassifier:
                 return choices[raw_reference].choice_id
             return None
 
-        if not isinstance(raw_reference, str):
+        if isinstance(raw_reference, Mapping):
+            reference = self._pick_string(raw_reference, ("text", "value", "label"))
+            if reference is None:
+                return None
+        elif isinstance(raw_reference, str):
+            reference = raw_reference.strip()
+        else:
             return None
 
-        reference = raw_reference.strip()
         if not reference:
             return None
 

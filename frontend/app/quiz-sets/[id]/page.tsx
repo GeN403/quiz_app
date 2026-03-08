@@ -73,10 +73,15 @@ export default function QuizSetDetailPage({ params }: PageProps) {
       }}
     >
       <Box sx={{ width: '100%', maxWidth: '760px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="h4" component="h1">クイズセット詳細</Typography>
-        <Link href="/quiz-sets" passHref>
-          <Button variant="outlined" size="small">← 一覧へ戻る</Button>
-        </Link>
+        <Typography variant="h4" component="h1">Quiz Set Detail</Typography>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Link href={`/local-battle?setId=${detail.id}&setName=${encodeURIComponent(detail.name)}`} passHref>
+            <Button variant="contained" size="small">Battle with this Set</Button>
+          </Link>
+          <Link href="/quiz-sets" passHref>
+            <Button variant="outlined" size="small">Back to List</Button>
+          </Link>
+        </Box>
       </Box>
 
       {error && (

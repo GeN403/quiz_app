@@ -103,7 +103,7 @@ async def test_prepare_aggregates_deleted_and_non_multiple_choice_counts():
                 {
                     "saved_quiz_id": "free-text",
                     "is_deleted": False,
-                    "answer_package_json": json.dumps({"question": "記述", "answer": "A"}),
+                    "answer_package_json": json.dumps({"question": "text-only", "answer": "A"}),
                 },
                 {
                     "saved_quiz_id": "mc-quiz",
@@ -131,11 +131,11 @@ async def test_prepare_aggregates_deleted_and_non_multiple_choice_counts():
     assert result.total_item_count == 3
     assert result.deleted_excluded_count == 1
     assert result.active_item_count == 2
-    assert result.non_multiple_choice_excluded_count == 1
-    assert result.eligible_question_count == 1
+    assert result.non_multiple_choice_excluded_count == 0
+    assert result.eligible_question_count == 2
     assert result.startable is True
     assert result.reason_code is None
-    assert len(result.questions) == 1
+    assert len(result.questions) == 2
 
 
 async def test_prepare_sets_reason_code_when_no_eligible_question_remains():
@@ -148,7 +148,7 @@ async def test_prepare_sets_reason_code_when_no_eligible_question_remains():
                 {
                     "saved_quiz_id": "free-text",
                     "is_deleted": False,
-                    "answer_package_json": json.dumps({"question": "記述", "answer": "A"}),
+                    "answer_package_json": json.dumps({"question": "text-only"}),
                 }
             ],
         )

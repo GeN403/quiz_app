@@ -59,6 +59,18 @@ async def client():
                 '{"question":"記述","answer":"A"}',
             ),
         )
+        await db.execute(
+            """
+            INSERT INTO saved_quizzes
+            (id, generation_result_id, saved_at, topic, question_count, input_params, answer_package)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            _saved_quiz_payload(
+                3,
+                "2026-01-03T00:00:00+00:00",
+                "{\"question\":\"text-only\"}",
+            ),
+        )
         await db.commit()
 
         app.state.db = db
@@ -83,17 +95,17 @@ async def test_get_battle_ready_returns_aggregated_counts_and_questions(client):
     assert body["total_item_count"] == 2
     assert body["deleted_excluded_count"] == 0
     assert body["active_item_count"] == 2
-    assert body["non_multiple_choice_excluded_count"] == 1
-    assert body["eligible_question_count"] == 1
+    assert body["non_multiple_choice_excluded_count"] == 0
+    assert body["eligible_question_count"] == 2
     assert body["startable"] is True
     assert body["reason_code"] is None
-    assert len(body["questions"]) == 1
+    assert len(body["questions"]) == 2
 
 
 async def test_get_battle_ready_returns_reason_code_when_no_eligible_questions(client):
     create_res = await client.post(
         "/quiz-sets",
-        json={"name": "battle-empty", "saved_quiz_ids": ["saved-2"]},
+        json={"name": "battle-empty", "saved_quiz_ids": ["saved-3"]},
     )
     set_id = create_res.json()["id"]
 
