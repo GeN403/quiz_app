@@ -34,6 +34,8 @@ const LENGTH_LABELS: Record<(typeof LENGTH_OPTIONS)[number], string> = {
   long: "長い（150文字以内）",
 };
 
+const QUESTION_COUNT_OPTIONS = [1, 2, 3, 4, 5] as const;
+
 export function QuizOptionsFields({
   questionCount,
   onQuestionCountChange,
@@ -46,18 +48,20 @@ export function QuizOptionsFields({
   return (
     <>
       <TextField
+        select
         label="問題数"
-        value={String(questionCount)}
-        onChange={(e) => {
-          const n = Number(e.target.value);
-          if (!Number.isNaN(n) && n >= 1 && n <= 5) {
-            onQuestionCountChange(n);
-          }
-        }}
+        value={questionCount}
+        onChange={(e) => onQuestionCountChange(Number(e.target.value))}
         disabled={disabled}
         helperText="1〜5問まで指定可能"
         sx={{ width: "200px" }}
-      />
+      >
+        {QUESTION_COUNT_OPTIONS.map((count) => (
+          <MenuItem key={count} value={count}>
+            {count}問
+          </MenuItem>
+        ))}
+      </TextField>
 
       <FormControl fullWidth>
         <InputLabel id="tab-difficulty-label">難易度（任意）</InputLabel>
