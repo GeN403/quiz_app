@@ -126,25 +126,16 @@ export function useQuizGeneration() {
     }
   };
 
-  // URL未入力時にジャンルからURLを補完する関数
-  const ensureSourceUrl = async (
-    inputUrl: string,
+  // URL候補をジャンルから取得する関数
+  const suggestSourceUrls = async (
     selectedGenre: string,
+    k: number,
     selectedTopic?: string,
-  ): Promise<string> => {
-    // URL入力済みの場合はそのまま返す
-    if (inputUrl && inputUrl.trim()) {
-      console.log("[URL補完] URL入力済み、補完不要");
-      return inputUrl.trim();
-    }
-
-    // URL未入力の場合、ジャンルからURL候補を取得
-    console.log("[URL補完] URL未入力、ジャンルから補完:", selectedGenre);
-
+  ): Promise<string[]> => {
     try {
       const params = new URLSearchParams({
         genre: selectedGenre,
-        k: "1",
+        k: String(k),
       });
       if (selectedTopic && selectedTopic.trim()) {
         params.set("topic", selectedTopic.trim());
@@ -162,16 +153,43 @@ export function useQuizGeneration() {
         throw new Error(`ジャンル「${selectedGenre}」にはURLが登録されていません`);
       }
 
-      const suggestedUrl = data.urls[0];
-      console.log("[URL補完] 補完されたURL:", suggestedUrl);
+      const urls = Array.from(
+        new Set(
+          (data.urls as string[])
+            .map((url) => url.trim())
+            .filter((url) => url.length > 0)
+        )
+      );
 
-      return suggestedUrl;
+      if (urls.length === 0) {
+        throw new Error(`ジャンル「${selectedGenre}」には有効なURLが登録されていません`);
+      }
+
+      return urls;
     } catch (error: any) {
       console.error("[URL補完] エラー:", error);
       throw new Error(
         error.message || `ジャンル「${selectedGenre}」からのURL取得に失敗しました`
       );
     }
+  };
+
+  // URL未入力時にジャンルからURLを補完する関数
+  const ensureSourceUrl = async (
+    inputUrl: string,
+    selectedGenre: string,
+    selectedTopic?: string,
+  ): Promise<string> => {
+    // URL入力済みの場合はそのまま返す
+    if (inputUrl && inputUrl.trim()) {
+      console.log("[URL補完] URL入力済み、補完不要");
+      return inputUrl.trim();
+    }
+
+    // URL未入力の場合、ジャンルからURL候補を取得
+    console.log("[URL補完] URL未入力、ジャンルから補完:", selectedGenre);
+    const suggestedUrls = await suggestSourceUrls(selectedGenre, 1, selectedTopic);
+    return suggestedUrls[0];
   };
 
   // クイズ生成（タブ別 dispatch）
@@ -205,23 +223,59 @@ export function useQuizGeneration() {
           setIsLoading(false);
           return;
         }
-        const suggestedUrl = await ensureSourceUrl("", genre);
-        const resolveData = await fetchResolveSource(suggestedUrl);
-        setResolvedSource(resolveData);
-        const quoteToSend = resolveData.quotes[0] ?? "";
-        setSelectedQuote(quoteToSend);
-        const data = await fetchGenerateQuiz({
-          category,
-          questionCount: request.options.questionCount,
-          sourceUrl: suggestedUrl,
-          selectedQuote: quoteToSend,
-          difficulty: (request.options.difficulty || undefined) as (typeof DIFFICULTY_OPTIONS)[number] | undefined,
-          length: (request.options.length || undefined) as (typeof LENGTH_OPTIONS)[number] | undefined,
-        });
-        applyQuizResponse(data, request.options.questionCount);
+
         if (request.options.questionCount === 1) {
+          const suggestedUrl = await ensureSourceUrl("", genre);
+          const resolveData = await fetchResolveSource(suggestedUrl);
+          setResolvedSource(resolveData);
+          const quoteToSend = resolveData.quotes[0] ?? "";
+          setSelectedQuote(quoteToSend);
+          const data = await fetchGenerateQuiz({
+            category,
+            questionCount: 1,
+            sourceUrl: suggestedUrl,
+            selectedQuote: quoteToSend,
+            difficulty: (request.options.difficulty || undefined) as (typeof DIFFICULTY_OPTIONS)[number] | undefined,
+            length: (request.options.length || undefined) as (typeof LENGTH_OPTIONS)[number] | undefined,
+          });
+          applyQuizResponse(data, 1);
           setAnswerPackage(data as Record<string, unknown>);
-          setLastInputParams({ mode: "category", category, source_url: suggestedUrl, selected_quote: quoteToSend, question_count: request.options.questionCount, difficulty: request.options.difficulty || undefined, length: request.options.length || undefined });
+          setLastInputParams({ mode: "category", category, source_url: suggestedUrl, selected_quote: quoteToSend, question_count: 1, difficulty: request.options.difficulty || undefined, length: request.options.length || undefined });
+        } else {
+          const requestedCount = request.options.questionCount;
+          const rawUrls = await suggestSourceUrls(genre, Math.min(10, requestedCount * 2));
+          const uniqueUrls = Array.from(new Set(rawUrls));
+
+          if (uniqueUrls.length < requestedCount) {
+            throw new Error(
+              `カテゴリ「${genre}」で重複なしに${requestedCount}問を作るための参照ページが不足しています（利用可能: ${uniqueUrls.length}件）。問題数を減らしてください。`
+            );
+          }
+
+          const selectedUrls = uniqueUrls.slice(0, requestedCount);
+          const generatedQuestions: QuizData[] = [];
+
+          for (const sourceUrl of selectedUrls) {
+            const resolveData = await fetchResolveSource(sourceUrl);
+            const quoteToSend = resolveData.quotes[0] ?? "";
+            const oneQuestionData = await fetchGenerateQuiz({
+              category,
+              questionCount: 1,
+              sourceUrl,
+              selectedQuote: quoteToSend,
+              difficulty: (request.options.difficulty || undefined) as (typeof DIFFICULTY_OPTIONS)[number] | undefined,
+              length: (request.options.length || undefined) as (typeof LENGTH_OPTIONS)[number] | undefined,
+            });
+
+            const quizItem = oneQuestionData as QuizData;
+            generatedQuestions.push(quizItem);
+            setResolvedSource(resolveData);
+            setSelectedQuote(quoteToSend);
+          }
+
+          setQuestions(generatedQuestions);
+          setCurrentQuestionIndex(0);
+          setQuiz(generatedQuestions[0] ?? null);
         }
 
       } else if (request.mode === "url") {
@@ -354,6 +408,12 @@ export function useQuizGeneration() {
     setShowAnswer(true);
   };
 
+  const handleRevealAnswer = () => {
+    if (!quiz) return;
+    setError("");
+    setShowAnswer(true);
+  };
+
   // 履歴クリア
   const handleClearHistory = () => {
     if (confirm("本当に履歴をすべて削除しますか？")) {
@@ -428,6 +488,7 @@ export function useQuizGeneration() {
     handleResolveSource,
     handleGenerate,
     handleSubmitAnswer,
+    handleRevealAnswer,
     handleClearHistory,
     handlePreviousQuestion,
     handleNextQuestion,
