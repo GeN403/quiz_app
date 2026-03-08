@@ -1,4 +1,4 @@
-# AI-DLC and Spec-Driven Development
+﻿# AI-DLC and Spec-Driven Development
 
 Kiro-style Spec Driven Development implementation on AI-DLC (AI Development Life Cycle)
 
@@ -23,6 +23,7 @@ Project memory keeps persistent guidance (steering, specs notes, component docs)
 ### Active Specifications
 - Check `.kiro/specs/` for active specifications
 - Use `/prompts:kiro-spec-status [feature-name]` to check progress
+- ccsdd alias is also available in Codex (example: /prompts:ccsdd-spec-status [feature-name])
 
 ## Development Guidelines
 - Think in English, generate responses in Japanese. All Markdown content written to project files (e.g., requirements.md, design.md, tasks.md, research.md, validation reports) MUST be written in the target language configured for this specification (see spec.json.language).
@@ -39,9 +40,21 @@ Project memory keeps persistent guidance (steering, specs notes, component docs)
 - Phase 2 (Implementation): `/prompts:kiro-spec-impl {feature} [tasks]`
   - `/prompts:kiro-validate-impl {feature}` (optional: after implementation)
 - Progress check: `/prompts:kiro-spec-status {feature}` (use anytime)
+### Codex ccsdd Aliases
+- Phase 0 (optional): `/prompts:ccsdd-steering`, `/prompts:ccsdd-steering-custom`
+- Phase 1 (Specification):
+  - `/prompts:ccsdd-spec-init "description"`
+  - `/prompts:ccsdd-spec-requirements {feature}`
+  - `/prompts:ccsdd-validate-gap {feature}` (optional: for existing codebase)
+  - `/prompts:ccsdd-spec-design {feature} [-y]`
+  - `/prompts:ccsdd-validate-design {feature}` (optional: design review)
+  - `/prompts:ccsdd-spec-tasks {feature} [-y]`
+- Phase 2 (Implementation): `/prompts:ccsdd-spec-impl {feature} [tasks]`
+  - `/prompts:ccsdd-validate-impl {feature}` (optional: after implementation)
+- Progress check: `/prompts:ccsdd-spec-status {feature}`
 
 ## Development Rules
-- 3-phase approval workflow: Requirements → Design → Tasks → Implementation
+- 3-phase approval workflow: Requirements 竊・Design 竊・Tasks 竊・Implementation
 - Human review required each phase; use `-y` only for intentional fast-track
 - Keep steering current and verify alignment with `/prompts:kiro-spec-status`
 - Follow the user's instructions precisely, and within that scope act autonomously: gather the necessary context and complete the requested work end-to-end in this run, asking questions only when essential information is missing or the instructions are critically ambiguous.
