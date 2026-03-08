@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -43,6 +43,34 @@ export default function LocalBattlePage() {
     presetSetId,
   ]);
 
+  useEffect(() => {
+    if (controller.phase !== 'playing') {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      if (key === 'f') {
+        event.preventDefault();
+        controller.lockAnswerer('player1');
+      } else if (key === 'j') {
+        event.preventDefault();
+        controller.lockAnswerer('player2');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [controller.lockAnswerer, controller.phase]);
+
+  const player1Name = controller.playerNames.player1.trim() || 'プレイヤー1';
+  const player2Name = controller.playerNames.player2.trim() || 'プレイヤー2';
   const answererName =
     controller.currentAnswerer === null
       ? ''
@@ -170,6 +198,8 @@ export default function LocalBattlePage() {
             onChange={(e) => controller.updatePlayerName('player2', e.target.value)}
           />
 
+          <Alert severity="info">早押しキー: プレイヤー1はF、プレイヤー2はJ</Alert>
+
           {controller.startBlockedMessage && (
             <Alert severity="warning">{controller.startBlockedMessage}</Alert>
           )}
@@ -191,8 +221,8 @@ export default function LocalBattlePage() {
             <Typography variant="h6" gutterBottom>
               スコア
             </Typography>
-            <Typography>プレイヤー1: {controller.scores.player1}</Typography>
-            <Typography>プレイヤー2: {controller.scores.player2}</Typography>
+            <Typography>{player1Name}: {controller.scores.player1}</Typography>
+            <Typography>{player2Name}: {controller.scores.player2}</Typography>
           </Paper>
 
           <LocalBattlePlayPanel
@@ -200,6 +230,8 @@ export default function LocalBattlePage() {
             questionNumber={controller.currentQuestionNumber}
             totalQuestions={controller.totalQuestions}
             answererName={answererName}
+            waitingForBuzz={controller.currentAnswerer === null && controller.questionAnswerStatus === 'unanswered'}
+            buzzHint={`Fキー: ${player1Name} / Jキー: ${player2Name}`}
             isSubmitting={controller.isSubmitting}
             isAnswered={controller.questionAnswerStatus === 'answered'}
             selectedChoiceId={controller.answerResult?.selectedChoiceId ?? null}
@@ -213,14 +245,14 @@ export default function LocalBattlePage() {
       {controller.phase === 'result' && (
         <Paper sx={{ p: 3, width: '100%', maxWidth: '760px', display: 'flex', flexDirection: 'column', gap: 2 }}>
           <Typography variant="h5">対戦結果</Typography>
-          <Typography>プレイヤー1: {controller.scores.player1}</Typography>
-          <Typography>プレイヤー2: {controller.scores.player2}</Typography>
+          <Typography>{player1Name}: {controller.scores.player1}</Typography>
+          <Typography>{player2Name}: {controller.scores.player2}</Typography>
           <Typography variant="h6">
             {controller.winner === 'draw'
               ? '引き分け'
               : controller.winner === 'player1'
-              ? '勝者: プレイヤー1'
-              : '勝者: プレイヤー2'}
+              ? `勝者: ${player1Name}`
+              : `勝者: ${player2Name}`}
           </Typography>
           <Box sx={{ display: 'flex', gap: 1 }}>
             <Button variant="contained" onClick={controller.rematch}>

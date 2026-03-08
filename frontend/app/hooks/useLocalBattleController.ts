@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useCallback, useEffect, useMemo, useReducer } from 'react';
 import {
@@ -16,7 +16,6 @@ import {
   AnswerResult,
   computeWinner,
   createInitialBattleState,
-  getCurrentAnswerer,
   localBattleReducer,
   mapHttpErrorStatus,
   mapReasonCode,
@@ -61,6 +60,7 @@ export interface LocalBattleController {
   selectSet: (setId: string, setName: string) => Promise<void>;
   updatePlayerName: (player: PlayerSlot, name: string) => void;
   startBattle: () => Promise<void>;
+  lockAnswerer: (answerer: PlayerSlot) => void;
   submitAnswer: (choiceId: string) => void;
   proceedNext: () => void;
   rematch: () => void;
@@ -157,12 +157,34 @@ export function useLocalBattleController(): LocalBattleController {
     }
   }, [state.playerNames.player1, state.playerNames.player2, state.selectedSetId]);
 
+  const lockAnswerer = useCallback(
+    (answerer: PlayerSlot) => {
+      if (
+        state.phase !== 'playing' ||
+        state.questionAnswerStatus === 'answered' ||
+        state.isSubmitting ||
+        state.currentAnswerer !== null
+      ) {
+        return;
+      }
+
+      dispatch({ type: 'LOCK_ANSWERER', answerer });
+    },
+    [
+      state.currentAnswerer,
+      state.isSubmitting,
+      state.phase,
+      state.questionAnswerStatus,
+    ]
+  );
+
   const submitAnswer = useCallback(
     (choiceId: string) => {
       if (
         state.phase !== 'playing' ||
         state.questionAnswerStatus === 'answered' ||
-        state.isSubmitting
+        state.isSubmitting ||
+        state.currentAnswerer === null
       ) {
         return;
       }
@@ -179,12 +201,12 @@ export function useLocalBattleController(): LocalBattleController {
         type: 'SUBMIT_ANSWER',
         selectedChoiceId: choiceId,
         isCorrect,
-        answerer: getCurrentAnswerer(state.currentQuestionIndex),
       });
 
       dispatch({ type: 'SET_IS_SUBMITTING', value: false });
     },
     [
+      state.currentAnswerer,
       state.currentQuestionIndex,
       state.isSubmitting,
       state.phase,
@@ -239,8 +261,8 @@ export function useLocalBattleController(): LocalBattleController {
     if (state.phase !== 'playing') {
       return null;
     }
-    return getCurrentAnswerer(state.currentQuestionIndex);
-  }, [state.currentQuestionIndex, state.phase]);
+    return state.currentAnswerer;
+  }, [state.currentAnswerer, state.phase]);
 
   return {
     phase: state.phase,
@@ -266,6 +288,7 @@ export function useLocalBattleController(): LocalBattleController {
     selectSet,
     updatePlayerName,
     startBattle,
+    lockAnswerer,
     submitAnswer,
     proceedNext,
     rematch,
