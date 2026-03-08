@@ -1,4 +1,4 @@
-"""
+﻿"""
 SavedQuizRepository — SQLite を使った保存済みクイズのデータアクセス層
 """
 
@@ -35,6 +35,27 @@ def _derive_topic(params: GenerationInputParams) -> str:
     if params.source_url:
         return params.source_url
     return "無題"
+
+
+def _extract_question_answer(answer_package_json: str | None) -> tuple[str, str]:
+    if not answer_package_json:
+        return "", ""
+
+    try:
+        loaded = json.loads(answer_package_json)
+    except Exception:
+        return "", ""
+
+    if not isinstance(loaded, dict):
+        return "", ""
+
+    question = loaded.get("question")
+    answer = loaded.get("answer")
+
+    question_text = question if isinstance(question, str) else ""
+    answer_text = answer if isinstance(answer, str) else ""
+
+    return question_text, answer_text
 
 
 class SavedQuizRepository:
@@ -111,7 +132,7 @@ class SavedQuizRepository:
         """saved_at DESC 順で全レコードを返す。デシリアライズ失敗レコードはスキップする。"""
         async with self._db.execute(
             """
-            SELECT id, generation_result_id, saved_at, topic, question_count, input_params
+            SELECT id, generation_result_id, saved_at, topic, question_count, input_params, answer_package
             FROM saved_quizzes
             ORDER BY saved_at DESC, rowid DESC
             """
@@ -120,9 +141,10 @@ class SavedQuizRepository:
 
         items: list[SavedQuizListItem] = []
         for row in rows:
-            id_, gen_result_id, saved_at, topic, question_count, input_params_json = row
+            id_, gen_result_id, saved_at, topic, question_count, input_params_json, answer_package_json = row
             try:
                 json.loads(input_params_json)  # デシリアライズ可能か検証
+                question, answer = _extract_question_answer(answer_package_json)
                 items.append(
                     SavedQuizListItem(
                         id=id_,
@@ -130,6 +152,8 @@ class SavedQuizRepository:
                         saved_at=saved_at,
                         topic=topic,
                         question_count=question_count,
+                        question=question,
+                        answer=answer,
                     )
                 )
             except Exception as e:

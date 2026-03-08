@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState } from 'react';
 import Link from 'next/link';
@@ -96,20 +96,35 @@ export default function SavedQuizzesPage() {
       {!isLoading && items.map((item) => (
         <Paper
           key={item.id}
-          sx={{ p: 3, width: '100%', maxWidth: '700px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+          sx={{ p: 3, width: '100%', maxWidth: '700px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2 }}
         >
-          <Box>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography variant="h6" component="h2">
               {item.topic}
             </Typography>
             <Typography variant="caption" color="text.secondary" display="block">
               問題数: {item.question_count}件
             </Typography>
-            <Typography variant="caption" color="text.secondary" display="block">
+            <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
               保存日時: {new Date(item.saved_at).toLocaleString('ja-JP')}
             </Typography>
+
+            <Typography variant="body2" sx={{ fontWeight: 700, mt: 1 }}>
+              問題
+            </Typography>
+            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+              {item.question || '（問題文なし）'}
+            </Typography>
+
+            <Typography variant="body2" sx={{ fontWeight: 700, mt: 1 }}>
+              解答
+            </Typography>
+            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+              {item.answer || '（解答なし）'}
+            </Typography>
           </Box>
-          <Box sx={{ display: 'flex', gap: 1 }}>
+
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, flexShrink: 0 }}>
             <Link href={`/saved-quizzes/${item.id}`} passHref>
               <Button variant="outlined" size="small">
                 詳細
