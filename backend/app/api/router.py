@@ -1,4 +1,4 @@
-"""
+﻿"""
 APIルータ統合
 """
 
@@ -51,5 +51,9 @@ def create_api_router(gemini_model) -> APIRouter:
     # /saved-quizzes エンドポイントを追加
     from app.api.routes.saved_quizzes import create_saved_quizzes_router
     api_router.include_router(create_saved_quizzes_router())
+
+    # /quiz-sets エンドポイントを追加
+    from app.api.routes.quiz_sets import create_quiz_sets_router
+    api_router.include_router(create_quiz_sets_router())
 
     return api_router
