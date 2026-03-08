@@ -39,6 +39,8 @@ export function useQuizGeneration() {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState<number>(0);
   const [answerPackage, setAnswerPackage] = useState<Record<string, unknown> | null>(null);
   const [lastInputParams, setLastInputParams] = useState<Record<string, unknown> | null>(null);
+  const [questionAnswerPackages, setQuestionAnswerPackages] = useState<Record<string, unknown>[]>([]);
+  const [questionInputParams, setQuestionInputParams] = useState<Record<string, unknown>[]>([]);
 
   // URL解決
   const [resolvedSource, setResolvedSource] = useState<ResolvedSource | null>(null);
@@ -192,6 +194,33 @@ export function useQuizGeneration() {
     return suggestedUrls[0];
   };
 
+  const resolvePackageId = (pkg: Record<string, unknown>, fallback: string): string => {
+    const raw = pkg.package_id;
+    if (typeof raw === "string" && raw.trim()) {
+      return raw;
+    }
+    return fallback;
+  };
+
+  const buildInputParams = (params: {
+    mode: "category" | "url" | "keyword";
+    category: string;
+    sourceUrl: string;
+    selectedQuote: string;
+    difficulty?: string;
+    length?: string;
+    keyword?: string;
+  }): Record<string, unknown> => ({
+    mode: params.mode,
+    category: params.category,
+    source_url: params.sourceUrl,
+    selected_quote: params.selectedQuote,
+    question_count: 1,
+    difficulty: params.difficulty,
+    length: params.length,
+    keyword: params.keyword,
+  });
+
   // クイズ生成（タブ別 dispatch）
   const handleGenerate = async (request: TabGenerateRequest) => {
     if (isLoading) {
@@ -203,6 +232,8 @@ export function useQuizGeneration() {
     setCurrentQuestionIndex(0);
     setAnswerPackage(null);
     setLastInputParams(null);
+    setQuestionAnswerPackages([]);
+    setQuestionInputParams([]);
     setError("");
     setIsLoading(true);
     setShowAnswer(false);
@@ -217,7 +248,7 @@ export function useQuizGeneration() {
           setIsLoading(false);
           return;
         }
-        const genre = CATEGORIES.find(c => c.value === category)?.label;
+        const genre = CATEGORIES.find((c) => c.value === category)?.label;
         if (!genre) {
           setError("無効なカテゴリが選択されています。");
           setIsLoading(false);
@@ -239,8 +270,20 @@ export function useQuizGeneration() {
             length: (request.options.length || undefined) as (typeof LENGTH_OPTIONS)[number] | undefined,
           });
           applyQuizResponse(data, 1);
-          setAnswerPackage(data as Record<string, unknown>);
-          setLastInputParams({ mode: "category", category, source_url: suggestedUrl, selected_quote: quoteToSend, question_count: 1, difficulty: request.options.difficulty || undefined, length: request.options.length || undefined });
+
+          const singlePackage = data as Record<string, unknown>;
+          const singleInputParams = buildInputParams({
+            mode: "category",
+            category,
+            sourceUrl: suggestedUrl,
+            selectedQuote: quoteToSend,
+            difficulty: request.options.difficulty || undefined,
+            length: request.options.length || undefined,
+          });
+          setAnswerPackage(singlePackage);
+          setLastInputParams(singleInputParams);
+          setQuestionAnswerPackages([singlePackage]);
+          setQuestionInputParams([singleInputParams]);
         } else {
           const requestedCount = request.options.questionCount;
           const rawUrls = await suggestSourceUrls(genre, Math.min(10, requestedCount * 2));
@@ -254,6 +297,8 @@ export function useQuizGeneration() {
 
           const selectedUrls = uniqueUrls.slice(0, requestedCount);
           const generatedQuestions: QuizData[] = [];
+          const generatedPackages: Record<string, unknown>[] = [];
+          const generatedInputParams: Record<string, unknown>[] = [];
 
           for (const sourceUrl of selectedUrls) {
             const resolveData = await fetchResolveSource(sourceUrl);
@@ -267,8 +312,26 @@ export function useQuizGeneration() {
               length: (request.options.length || undefined) as (typeof LENGTH_OPTIONS)[number] | undefined,
             });
 
-            const quizItem = oneQuestionData as QuizData;
-            generatedQuestions.push(quizItem);
+            const rawPackage = oneQuestionData as Record<string, unknown>;
+            const fallbackId = `pkg_${Date.now()}_${generatedPackages.length + 1}`;
+            const packageId = resolvePackageId(rawPackage, fallbackId);
+            const normalizedPackage = {
+              ...rawPackage,
+              package_id: packageId,
+            };
+
+            generatedQuestions.push(normalizedPackage as unknown as QuizData);
+            generatedPackages.push(normalizedPackage);
+            generatedInputParams.push(
+              buildInputParams({
+                mode: "category",
+                category,
+                sourceUrl,
+                selectedQuote: quoteToSend,
+                difficulty: request.options.difficulty || undefined,
+                length: request.options.length || undefined,
+              })
+            );
             setResolvedSource(resolveData);
             setSelectedQuote(quoteToSend);
           }
@@ -276,6 +339,10 @@ export function useQuizGeneration() {
           setQuestions(generatedQuestions);
           setCurrentQuestionIndex(0);
           setQuiz(generatedQuestions[0] ?? null);
+          setQuestionAnswerPackages(generatedPackages);
+          setQuestionInputParams(generatedInputParams);
+          setAnswerPackage(generatedPackages[0] ?? null);
+          setLastInputParams(generatedInputParams[0] ?? null);
         }
 
       } else if (request.mode === "url") {
@@ -302,10 +369,56 @@ export function useQuizGeneration() {
           difficulty: (request.options.difficulty || undefined) as (typeof DIFFICULTY_OPTIONS)[number] | undefined,
           length: (request.options.length || undefined) as (typeof LENGTH_OPTIONS)[number] | undefined,
         });
-        applyQuizResponse(data, request.options.questionCount);
+
         if (request.options.questionCount === 1) {
-          setAnswerPackage(data as Record<string, unknown>);
-          setLastInputParams({ mode: "url", category: DEFAULT_CATEGORY, source_url: sourceUrl, selected_quote: quoteToSend, question_count: request.options.questionCount, difficulty: request.options.difficulty || undefined, length: request.options.length || undefined });
+          applyQuizResponse(data, 1);
+          const singlePackage = data as Record<string, unknown>;
+          const singleInputParams = buildInputParams({
+            mode: "url",
+            category: DEFAULT_CATEGORY,
+            sourceUrl,
+            selectedQuote: quoteToSend,
+            difficulty: request.options.difficulty || undefined,
+            length: request.options.length || undefined,
+          });
+          setAnswerPackage(singlePackage);
+          setLastInputParams(singleInputParams);
+          setQuestionAnswerPackages([singlePackage]);
+          setQuestionInputParams([singleInputParams]);
+        } else {
+          const responseData = data as { questions: QuizData[]; package_id?: string };
+          if (!responseData.questions || !Array.isArray(responseData.questions)) {
+            throw new Error("複数問生成のレスポンス形式が不正です。");
+          }
+
+          const basePackageId =
+            typeof responseData.package_id === "string" && responseData.package_id.trim()
+              ? responseData.package_id
+              : `pkg_${Date.now()}`;
+
+          const generatedPackages = responseData.questions.map((q, index) => ({
+            ...q,
+            package_id: `${basePackageId}_q${index + 1}`,
+          }));
+
+          const generatedInputParams = responseData.questions.map((q) =>
+            buildInputParams({
+              mode: "url",
+              category: DEFAULT_CATEGORY,
+              sourceUrl: q.source?.url || sourceUrl,
+              selectedQuote: q.source?.quote || quoteToSend,
+              difficulty: request.options.difficulty || undefined,
+              length: request.options.length || undefined,
+            })
+          );
+
+          setQuestions(responseData.questions);
+          setCurrentQuestionIndex(0);
+          setQuiz(responseData.questions[0] ?? null);
+          setQuestionAnswerPackages(generatedPackages);
+          setQuestionInputParams(generatedInputParams);
+          setAnswerPackage(generatedPackages[0] ?? null);
+          setLastInputParams(generatedInputParams[0] ?? null);
         }
 
       } else {
@@ -315,7 +428,7 @@ export function useQuizGeneration() {
           setIsLoading(false);
           return;
         }
-        const nonSectionLabel = CATEGORIES.find(c => c.value === DEFAULT_CATEGORY)?.label ?? "";
+        const nonSectionLabel = CATEGORIES.find((c) => c.value === DEFAULT_CATEGORY)?.label ?? "";
         const suggestedUrl = await ensureSourceUrl("", nonSectionLabel, request.keyword);
         const resolveData = await fetchResolveSource(suggestedUrl);
         setResolvedSource(resolveData);
@@ -330,10 +443,58 @@ export function useQuizGeneration() {
           length: (request.options.length || undefined) as (typeof LENGTH_OPTIONS)[number] | undefined,
           topic: request.keyword,
         });
-        applyQuizResponse(data, request.options.questionCount);
+
         if (request.options.questionCount === 1) {
-          setAnswerPackage(data as Record<string, unknown>);
-          setLastInputParams({ mode: "keyword", category: DEFAULT_CATEGORY, source_url: suggestedUrl, selected_quote: quoteToSend, question_count: request.options.questionCount, keyword: request.keyword, difficulty: request.options.difficulty || undefined, length: request.options.length || undefined });
+          applyQuizResponse(data, 1);
+          const singlePackage = data as Record<string, unknown>;
+          const singleInputParams = buildInputParams({
+            mode: "keyword",
+            category: DEFAULT_CATEGORY,
+            sourceUrl: suggestedUrl,
+            selectedQuote: quoteToSend,
+            difficulty: request.options.difficulty || undefined,
+            length: request.options.length || undefined,
+            keyword: request.keyword,
+          });
+          setAnswerPackage(singlePackage);
+          setLastInputParams(singleInputParams);
+          setQuestionAnswerPackages([singlePackage]);
+          setQuestionInputParams([singleInputParams]);
+        } else {
+          const responseData = data as { questions: QuizData[]; package_id?: string };
+          if (!responseData.questions || !Array.isArray(responseData.questions)) {
+            throw new Error("複数問生成のレスポンス形式が不正です。");
+          }
+
+          const basePackageId =
+            typeof responseData.package_id === "string" && responseData.package_id.trim()
+              ? responseData.package_id
+              : `pkg_${Date.now()}`;
+
+          const generatedPackages = responseData.questions.map((q, index) => ({
+            ...q,
+            package_id: `${basePackageId}_q${index + 1}`,
+          }));
+
+          const generatedInputParams = responseData.questions.map((q) =>
+            buildInputParams({
+              mode: "keyword",
+              category: DEFAULT_CATEGORY,
+              sourceUrl: q.source?.url || suggestedUrl,
+              selectedQuote: q.source?.quote || quoteToSend,
+              difficulty: request.options.difficulty || undefined,
+              length: request.options.length || undefined,
+              keyword: request.keyword,
+            })
+          );
+
+          setQuestions(responseData.questions);
+          setCurrentQuestionIndex(0);
+          setQuiz(responseData.questions[0] ?? null);
+          setQuestionAnswerPackages(generatedPackages);
+          setQuestionInputParams(generatedInputParams);
+          setAnswerPackage(generatedPackages[0] ?? null);
+          setLastInputParams(generatedInputParams[0] ?? null);
         }
       }
     } catch (error: any) {
@@ -428,6 +589,8 @@ export function useQuizGeneration() {
       const newIndex = currentQuestionIndex - 1;
       setCurrentQuestionIndex(newIndex);
       setQuiz(questions[newIndex]);
+      setAnswerPackage(questionAnswerPackages[newIndex] ?? null);
+      setLastInputParams(questionInputParams[newIndex] ?? null);
       setUserAnswer("");
       setJudgmentResult(null);
       setShowAnswer(false);
@@ -439,6 +602,8 @@ export function useQuizGeneration() {
       const newIndex = currentQuestionIndex + 1;
       setCurrentQuestionIndex(newIndex);
       setQuiz(questions[newIndex]);
+      setAnswerPackage(questionAnswerPackages[newIndex] ?? null);
+      setLastInputParams(questionInputParams[newIndex] ?? null);
       setUserAnswer("");
       setJudgmentResult(null);
       setShowAnswer(false);
