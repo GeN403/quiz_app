@@ -37,6 +37,8 @@ export function useQuizGeneration() {
   const [quiz, setQuiz] = useState<QuizData | null>(null);
   const [questions, setQuestions] = useState<QuizData[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState<number>(0);
+  const [answerPackage, setAnswerPackage] = useState<Record<string, unknown> | null>(null);
+  const [lastInputParams, setLastInputParams] = useState<Record<string, unknown> | null>(null);
 
   // URL解決
   const [resolvedSource, setResolvedSource] = useState<ResolvedSource | null>(null);
@@ -181,6 +183,8 @@ export function useQuizGeneration() {
     setQuiz(null);
     setQuestions([]);
     setCurrentQuestionIndex(0);
+    setAnswerPackage(null);
+    setLastInputParams(null);
     setError("");
     setIsLoading(true);
     setShowAnswer(false);
@@ -215,6 +219,10 @@ export function useQuizGeneration() {
           length: (request.options.length || undefined) as (typeof LENGTH_OPTIONS)[number] | undefined,
         });
         applyQuizResponse(data, request.options.questionCount);
+        if (request.options.questionCount === 1) {
+          setAnswerPackage(data as Record<string, unknown>);
+          setLastInputParams({ mode: "category", category, source_url: suggestedUrl, selected_quote: quoteToSend, question_count: request.options.questionCount, difficulty: request.options.difficulty || undefined, length: request.options.length || undefined });
+        }
 
       } else if (request.mode === "url") {
         // url mode: sourceUrl state が空なら終了
@@ -241,6 +249,10 @@ export function useQuizGeneration() {
           length: (request.options.length || undefined) as (typeof LENGTH_OPTIONS)[number] | undefined,
         });
         applyQuizResponse(data, request.options.questionCount);
+        if (request.options.questionCount === 1) {
+          setAnswerPackage(data as Record<string, unknown>);
+          setLastInputParams({ mode: "url", category: DEFAULT_CATEGORY, source_url: sourceUrl, selected_quote: quoteToSend, question_count: request.options.questionCount, difficulty: request.options.difficulty || undefined, length: request.options.length || undefined });
+        }
 
       } else {
         // keyword mode: request.keyword が空なら終了
@@ -265,6 +277,10 @@ export function useQuizGeneration() {
           topic: request.keyword,
         });
         applyQuizResponse(data, request.options.questionCount);
+        if (request.options.questionCount === 1) {
+          setAnswerPackage(data as Record<string, unknown>);
+          setLastInputParams({ mode: "keyword", category: DEFAULT_CATEGORY, source_url: suggestedUrl, selected_quote: quoteToSend, question_count: request.options.questionCount, keyword: request.keyword, difficulty: request.options.difficulty || undefined, length: request.options.length || undefined });
+        }
       }
     } catch (error: any) {
       console.error(error);
@@ -392,6 +408,8 @@ export function useQuizGeneration() {
     quiz,
     questions,
     currentQuestionIndex,
+    answerPackage,
+    lastInputParams,
     resolvedSource,
     selectedQuote,
     setSelectedQuote,
