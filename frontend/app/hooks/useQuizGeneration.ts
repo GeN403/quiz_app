@@ -19,6 +19,7 @@ import {
 } from "../lib/api";
 import { normalizeAnswer } from "../lib/utils";
 import { validateGenerateOptionalFields } from "../lib/generateOptions";
+import { TabGenerateRequest, DEFAULT_CATEGORY } from "../lib/tabGenerate";
 
 export function useQuizGeneration() {
   // カテゴリとオプション
@@ -36,6 +37,8 @@ export function useQuizGeneration() {
   const [quiz, setQuiz] = useState<QuizData | null>(null);
   const [questions, setQuestions] = useState<QuizData[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState<number>(0);
+  const [answerPackage, setAnswerPackage] = useState<Record<string, unknown> | null>(null);
+  const [lastInputParams, setLastInputParams] = useState<Record<string, unknown> | null>(null);
 
   // URL解決
   const [resolvedSource, setResolvedSource] = useState<ResolvedSource | null>(null);
@@ -171,134 +174,136 @@ export function useQuizGeneration() {
     }
   };
 
-  // クイズ生成
-  const handleGenerate = async () => {
-    // 既にローディング中の場合は何もしない（二重送信防止）
+  // クイズ生成（タブ別 dispatch）
+  const handleGenerate = async (request: TabGenerateRequest) => {
     if (isLoading) {
       return;
     }
 
-    // カテゴリ未選択の場合はエラー表示
-    if (!category) {
-      setError("カテゴリを選択してください。");
-      return;
-    }
-
-    const optionalValidation = validateGenerateOptionalFields({
-      difficulty,
-      length,
-      genre,
-      topic,
-    });
-    const hasFieldError = Object.values(optionalValidation.errors).some(Boolean);
-
-    setFieldErrors(optionalValidation.errors);
-    if (hasFieldError) {
-      return;
-    }
-
-    setQuiz(null); // 前のクイズをリセット
-    setQuestions([]); // 前の複数問クイズをリセット
-    setCurrentQuestionIndex(0); // インデックスリセット
-    setError(""); // 前のエラーをリセット
-    setIsLoading(true); // ローディング開始
-    setShowAnswer(false); // 答えを隠す
-    setUserAnswer(""); // ユーザーの回答をリセット
-    setJudgmentResult(null); // 判定結果をリセット
+    setQuiz(null);
+    setQuestions([]);
+    setCurrentQuestionIndex(0);
+    setAnswerPackage(null);
+    setLastInputParams(null);
+    setError("");
+    setIsLoading(true);
+    setShowAnswer(false);
+    setUserAnswer("");
+    setJudgmentResult(null);
 
     try {
-      // カテゴリから日本語ジャンル名を取得
-      const selectedGenre = CATEGORIES.find(cat => cat.value === category)?.label || "";
-      if (!selectedGenre) {
-        setError("無効なカテゴリが選択されています。");
-        setIsLoading(false);
-        return;
-      }
-
-      // URL未入力の場合、ジャンルからURLを補完
-      let effectiveUrl = sourceUrl;
-      if (!sourceUrl || !sourceUrl.trim()) {
-        console.log("[クイズ生成] URL未入力、補完を試みます...");
-        try {
-          effectiveUrl = await ensureSourceUrl(
-            sourceUrl,
-            selectedGenre,
-            optionalValidation.payload.topic,
-          );
-          // UI上のsourceUrlに反映（ユーザーに見えるようにする）
-          setSourceUrl(effectiveUrl);
-          console.log("[クイズ生成] URL補完完了:", effectiveUrl);
-        } catch (error: any) {
-          setError(error.message || "URLの補完に失敗しました。");
+      if (request.mode === "category") {
+        // category mode: category state が空なら終了
+        if (!category) {
+          setError("カテゴリを選択してください。");
           setIsLoading(false);
           return;
         }
-      }
-
-      // URLが確定したので、本文を取得
-      console.log("[クイズ生成] URL確定:", effectiveUrl);
-
-      // resolvedSourceが未設定、または異なるURLの場合は、本文を取得
-      if (!resolvedSource || resolvedSource.url !== effectiveUrl) {
-        console.log("[クイズ生成] 本文を取得中...");
-        try {
-          const data = await fetchResolveSource(effectiveUrl);
-          setResolvedSource(data);
-
-          // 最初のquoteをデフォルト選択
-          if (data.quotes && data.quotes.length > 0) {
-            setSelectedQuote(data.quotes[0]);
-          }
-        } catch (error: any) {
-          setError(error.message || "URL本文の取得に失敗しました。");
+        const genre = CATEGORIES.find(c => c.value === category)?.label;
+        if (!genre) {
+          setError("無効なカテゴリが選択されています。");
           setIsLoading(false);
           return;
         }
-      }
+        const suggestedUrl = await ensureSourceUrl("", genre);
+        const resolveData = await fetchResolveSource(suggestedUrl);
+        setResolvedSource(resolveData);
+        const quoteToSend = resolveData.quotes[0] ?? "";
+        setSelectedQuote(quoteToSend);
+        const data = await fetchGenerateQuiz({
+          category,
+          questionCount: request.options.questionCount,
+          sourceUrl: suggestedUrl,
+          selectedQuote: quoteToSend,
+          difficulty: (request.options.difficulty || undefined) as (typeof DIFFICULTY_OPTIONS)[number] | undefined,
+          length: (request.options.length || undefined) as (typeof LENGTH_OPTIONS)[number] | undefined,
+        });
+        applyQuizResponse(data, request.options.questionCount);
+        if (request.options.questionCount === 1) {
+          setAnswerPackage(data as Record<string, unknown>);
+          setLastInputParams({ mode: "category", category, source_url: suggestedUrl, selected_quote: quoteToSend, question_count: request.options.questionCount, difficulty: request.options.difficulty || undefined, length: request.options.length || undefined });
+        }
 
-      // resolvedSourceが未設定の場合（通常は上のロジックで設定されているはず）
-      if (!resolvedSource) {
-        setError("URL本文の取得に失敗しました。内部エラーです。");
-        setIsLoading(false);
-        return;
-      }
-
-      // クイズ生成APIを呼び出す
-      // difficulty/length は "" → undefined に変換して union 型と整合させる（Req 4.5）
-      const data = await fetchGenerateQuiz({
-        category,
-        questionCount,
-        sourceUrl: effectiveUrl,  // 補完されたURLまたは入力されたURLを使用
-        selectedQuote,
-        difficulty: optionalValidation.payload.difficulty as (typeof DIFFICULTY_OPTIONS)[number] | undefined,
-        length: optionalValidation.payload.length as (typeof LENGTH_OPTIONS)[number] | undefined,
-        genre: optionalValidation.payload.genre,
-        topic: optionalValidation.payload.topic,
-      });
-
-      // レスポンス形式に応じた処理
-      if (questionCount === 1) {
-        // 単問の場合: オブジェクトをそのまま保存
-        setQuiz(data as QuizData);
-      } else {
-        // 複数問の場合: {"questions": [...]} 形式
-        const responseData = data as { questions: QuizData[] };
-        if (responseData.questions && Array.isArray(responseData.questions)) {
-          setQuestions(responseData.questions);
-          setCurrentQuestionIndex(0);
-          // 最初の問題を表示
-          if (responseData.questions.length > 0) {
-            setQuiz(responseData.questions[0]);
-          }
+      } else if (request.mode === "url") {
+        // url mode: sourceUrl state が空なら終了
+        if (!sourceUrl.trim()) {
+          setError("URLを入力してください。");
+          setIsLoading(false);
+          return;
+        }
+        let quoteToSend: string;
+        if (resolvedSource?.url !== sourceUrl) {
+          const resolveData = await fetchResolveSource(sourceUrl);
+          setResolvedSource(resolveData);
+          quoteToSend = resolveData.quotes[0] ?? "";
+          setSelectedQuote(quoteToSend);
         } else {
-          throw new Error("複数問生成のレスポンス形式が不正です。");
+          quoteToSend = selectedQuote;
+        }
+        const data = await fetchGenerateQuiz({
+          category: DEFAULT_CATEGORY,
+          questionCount: request.options.questionCount,
+          sourceUrl,
+          selectedQuote: quoteToSend,
+          difficulty: (request.options.difficulty || undefined) as (typeof DIFFICULTY_OPTIONS)[number] | undefined,
+          length: (request.options.length || undefined) as (typeof LENGTH_OPTIONS)[number] | undefined,
+        });
+        applyQuizResponse(data, request.options.questionCount);
+        if (request.options.questionCount === 1) {
+          setAnswerPackage(data as Record<string, unknown>);
+          setLastInputParams({ mode: "url", category: DEFAULT_CATEGORY, source_url: sourceUrl, selected_quote: quoteToSend, question_count: request.options.questionCount, difficulty: request.options.difficulty || undefined, length: request.options.length || undefined });
+        }
+
+      } else {
+        // keyword mode: request.keyword が空なら終了
+        if (!request.keyword.trim()) {
+          setError("キーワードを入力してください。");
+          setIsLoading(false);
+          return;
+        }
+        const nonSectionLabel = CATEGORIES.find(c => c.value === DEFAULT_CATEGORY)?.label ?? "";
+        const suggestedUrl = await ensureSourceUrl("", nonSectionLabel, request.keyword);
+        const resolveData = await fetchResolveSource(suggestedUrl);
+        setResolvedSource(resolveData);
+        const quoteToSend = resolveData.quotes[0] ?? "";
+        setSelectedQuote(quoteToSend);
+        const data = await fetchGenerateQuiz({
+          category: DEFAULT_CATEGORY,
+          questionCount: request.options.questionCount,
+          sourceUrl: suggestedUrl,
+          selectedQuote: quoteToSend,
+          difficulty: (request.options.difficulty || undefined) as (typeof DIFFICULTY_OPTIONS)[number] | undefined,
+          length: (request.options.length || undefined) as (typeof LENGTH_OPTIONS)[number] | undefined,
+          topic: request.keyword,
+        });
+        applyQuizResponse(data, request.options.questionCount);
+        if (request.options.questionCount === 1) {
+          setAnswerPackage(data as Record<string, unknown>);
+          setLastInputParams({ mode: "keyword", category: DEFAULT_CATEGORY, source_url: suggestedUrl, selected_quote: quoteToSend, question_count: request.options.questionCount, keyword: request.keyword, difficulty: request.options.difficulty || undefined, length: request.options.length || undefined });
         }
       }
     } catch (error: any) {
       console.error(error);
       setError(error.message || "不明なエラーが発生しました。");
     } finally {
-      setIsLoading(false); // ローディング終了
+      setIsLoading(false);
+    }
+  };
+
+  const applyQuizResponse = (data: any, questionCount: number) => {
+    if (questionCount === 1) {
+      setQuiz(data as QuizData);
+    } else {
+      const responseData = data as { questions: QuizData[] };
+      if (responseData.questions && Array.isArray(responseData.questions)) {
+        setQuestions(responseData.questions);
+        setCurrentQuestionIndex(0);
+        if (responseData.questions.length > 0) {
+          setQuiz(responseData.questions[0]);
+        }
+      } else {
+        throw new Error("複数問生成のレスポンス形式が不正です。");
+      }
     }
   };
 
@@ -403,6 +408,8 @@ export function useQuizGeneration() {
     quiz,
     questions,
     currentQuestionIndex,
+    answerPackage,
+    lastInputParams,
     resolvedSource,
     selectedQuote,
     setSelectedQuote,

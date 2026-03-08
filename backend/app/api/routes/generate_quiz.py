@@ -2,6 +2,7 @@
 /generate-quiz エンドポイント
 """
 import logging
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
 from pydantic import ValidationError
@@ -252,6 +253,9 @@ async def generate_quiz(request: QuizRequest, model):
             )
 
         logger.info(f"[PYDANTIC VALIDATION] Success\n")
+
+        # --- 保存機能用: package_id を付与 ---
+        result["package_id"] = f"pkg_{uuid4().hex[:12]}"
 
         # --- resolve_seed 指定時: resolved_config を result に付与（Req 6.1〜6.3）---
         if request.resolve_seed is not None:
