@@ -4,8 +4,10 @@ import io
 import logging
 import os
 import sys
+from contextlib import asynccontextmanager
 from uuid import uuid4
 
+import aiosqlite
 import google.generativeai as genai
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
@@ -16,6 +18,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.router import create_agent_router, create_api_router
 from app.core.logging import configure_logging, reset_correlation_id, set_correlation_id
+from app.db.database import init_db
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -42,7 +45,21 @@ model = genai.GenerativeModel("gemini-2.0-flash-lite")
 _NEW_FIELDS = frozenset({"difficulty", "length", "genre", "topic"})
 _SEED_FIELD = "resolve_seed"
 
-app = FastAPI()
+_DB_PATH = os.getenv("SQLITE_DB_PATH", "quiz_app.db")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """アプリケーション起動時に SQLite DB を初期化し、終了時に接続を閉じる。"""
+    async with aiosqlite.connect(_DB_PATH) as db:
+        await init_db(db)
+        app.state.db = db
+        logger.info("SQLite DB initialized: %s", _DB_PATH)
+        yield
+    logger.info("SQLite DB connection closed.")
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 @app.middleware("http")

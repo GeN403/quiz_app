@@ -48,4 +48,8 @@ def create_api_router(gemini_model) -> APIRouter:
     async def generate_quiz_endpoint(request: QuizRequest):
         return await generate_quiz.generate_quiz(request, gemini_model)
 
+    # /saved-quizzes エンドポイントを追加
+    from app.api.routes.saved_quizzes import create_saved_quizzes_router
+    api_router.include_router(create_saved_quizzes_router())
+
     return api_router
