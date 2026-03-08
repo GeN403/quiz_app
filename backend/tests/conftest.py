@@ -5,6 +5,14 @@ langchain_google_genai の google-generativeai バージョン不整合を
 sys.modules パッチで回避する（エンドポイントテスト用）。
 """
 
+import pytest
+
+
+# pytest-asyncio のデフォルト asyncio_mode を auto に設定
+# （@pytest.mark.asyncio を個別に記述せずに async テストを実行する）
+def pytest_configure(config):
+    config.addinivalue_line("markers", "asyncio: mark test as asyncio")
+
 import sys
 from unittest.mock import MagicMock
 
