@@ -5,6 +5,7 @@ QuizSetRepository — SQLite を使ったクイズセットのデータアクセ
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import TypedDict
 from uuid import uuid4
 
 import aiosqlite
@@ -20,6 +21,12 @@ from app.schemas.quiz_set import (
 
 class InvalidSavedQuizIdError(Exception):
     """指定した saved_quiz_id が saved_quizzes に存在しない場合に raise する"""
+
+
+class BattleSourceRow(TypedDict):
+    saved_quiz_id: str
+    is_deleted: bool
+    answer_package_json: str | None
 
 
 class QuizSetRepository:
@@ -70,7 +77,7 @@ class QuizSetRepository:
             FROM quiz_sets qs
             LEFT JOIN quiz_set_items qsi ON qsi.quiz_set_id = qs.id
             GROUP BY qs.id, qs.name, qs.created_at
-            ORDER BY qs.created_at DESC
+            ORDER BY qs.created_at DESC, qs.rowid DESC
             """
         ) as cursor:
             rows = await cursor.fetchall()
@@ -130,6 +137,45 @@ class QuizSetRepository:
             items=items,
         )
 
+    async def get_battle_sources(self, set_id: str) -> tuple[str, str, list[BattleSourceRow]] | None:
+        async with self._db.execute(
+            """
+            SELECT id, name
+            FROM quiz_sets
+            WHERE id = ?
+            """,
+            (set_id,),
+        ) as cursor:
+            set_row = await cursor.fetchone()
+
+        if set_row is None:
+            return None
+
+        async with self._db.execute(
+            """
+            SELECT qsi.saved_quiz_id,
+                   CASE WHEN sq.id IS NULL THEN 1 ELSE 0 END AS is_deleted,
+                   sq.answer_package
+            FROM quiz_set_items qsi
+            LEFT JOIN saved_quizzes sq ON sq.id = qsi.saved_quiz_id
+            WHERE qsi.quiz_set_id = ?
+            ORDER BY qsi.saved_quiz_id ASC
+            """,
+            (set_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+        source_rows: list[BattleSourceRow] = [
+            {
+                "saved_quiz_id": row[0],
+                "is_deleted": bool(row[1]),
+                "answer_package_json": row[2],
+            }
+            for row in rows
+        ]
+
+        return set_row[0], set_row[1], source_rows
+
     async def delete_by_id(self, set_id: str) -> bool:
         cursor = await self._db.execute(
             "DELETE FROM quiz_sets WHERE id = ?",
@@ -137,3 +183,4 @@ class QuizSetRepository:
         )
         await self._db.commit()
         return cursor.rowcount > 0
+

@@ -1,5 +1,5 @@
 ﻿"""
-クイズセット CRUD エンドポイント
+クイズセット CRUD + ローカル対戦準備エンドポイント
 """
 
 from __future__ import annotations
@@ -10,7 +10,9 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 
 from app.repository.quiz_set import InvalidSavedQuizIdError, QuizSetRepository
+from app.schemas.local_battle import BattleReadyResponse
 from app.schemas.quiz_set import CreateQuizSetRequest, QuizSetDetail, QuizSetResponse
+from app.services.local_battle import BattlePreparationService, BattleQuestionClassifier
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,21 @@ def create_quiz_sets_router() -> APIRouter:
         if detail is None:
             raise HTTPException(status_code=404, detail="QUIZ_SET_NOT_FOUND")
         return detail
+
+    @router.get("/{set_id}/battle-ready", response_model=BattleReadyResponse)
+    async def get_quiz_set_battle_ready(set_id: str, request: Request):
+        repo = QuizSetRepository(request.app.state.db)
+        service = BattlePreparationService(repo, BattleQuestionClassifier())
+        try:
+            ready = await service.prepare(set_id)
+        except Exception as e:
+            logger.error("battle-ready 取得でエラーが発生しました: %s", e, exc_info=True)
+            raise HTTPException(status_code=500, detail="DB_ERROR")
+
+        if ready is None:
+            raise HTTPException(status_code=404, detail="QUIZ_SET_NOT_FOUND")
+
+        return ready
 
     @router.delete("/{set_id}", status_code=204)
     async def delete_quiz_set(set_id: str, request: Request):
