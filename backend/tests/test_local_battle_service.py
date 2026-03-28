@@ -1,5 +1,5 @@
-﻿"""
-Local battle service unit tests (RED first)
+"""
+Local battle service unit tests
 """
 
 from __future__ import annotations
@@ -17,7 +17,23 @@ class _StubRepo:
         return self._response
 
 
-def test_classifier_returns_question_when_minimum_multiple_choice_conditions_are_met():
+def test_classifier_returns_question_with_direct_answer():
+    classifier = BattleQuestionClassifier()
+
+    question = classifier.classify(
+        source_saved_quiz_id="saved-1",
+        answer_package={
+            "prompt": "首都はどこ？",
+            "answer": "東京",
+        },
+    )
+
+    assert question is not None
+    assert question.prompt == "首都はどこ？"
+    assert question.correct_answer_text == "東京"
+
+
+def test_classifier_extracts_correct_answer_from_choices():
     classifier = BattleQuestionClassifier()
 
     question = classifier.classify(
@@ -34,8 +50,7 @@ def test_classifier_returns_question_when_minimum_multiple_choice_conditions_are
 
     assert question is not None
     assert question.prompt == "首都はどこ？"
-    assert len(question.choices) == 2
-    assert question.correct_choice_id == "tokyo"
+    assert question.correct_answer_text == "東京"
 
 
 def test_classifier_returns_none_when_prompt_is_missing():
@@ -44,51 +59,27 @@ def test_classifier_returns_none_when_prompt_is_missing():
     question = classifier.classify(
         source_saved_quiz_id="saved-1",
         answer_package={
-            "choices": [
-                {"id": "a", "text": "A"},
-                {"id": "b", "text": "B"},
-            ],
-            "correctChoiceId": "a",
+            "answer": "A",
         },
     )
 
     assert question is None
 
 
-def test_classifier_returns_none_when_choices_are_less_than_two():
+def test_classifier_returns_none_when_answer_is_missing():
     classifier = BattleQuestionClassifier()
 
     question = classifier.classify(
         source_saved_quiz_id="saved-1",
         answer_package={
             "prompt": "Q",
-            "choices": [{"id": "a", "text": "A"}],
-            "correctChoiceId": "a",
         },
     )
 
     assert question is None
 
 
-def test_classifier_returns_none_when_correct_answer_cannot_be_uniquely_identified():
-    classifier = BattleQuestionClassifier()
-
-    question = classifier.classify(
-        source_saved_quiz_id="saved-1",
-        answer_package={
-            "prompt": "Q",
-            "choices": [
-                {"id": "a", "text": "同じ"},
-                {"id": "b", "text": "同じ"},
-            ],
-            "answer": "同じ",
-        },
-    )
-
-    assert question is None
-
-
-async def test_prepare_aggregates_deleted_and_non_multiple_choice_counts():
+async def test_prepare_aggregates_deleted_and_ineligible_counts():
     classifier = BattleQuestionClassifier()
     repo = _StubRepo(
         (
@@ -146,7 +137,7 @@ async def test_prepare_sets_reason_code_when_no_eligible_question_remains():
             "セットA",
             [
                 {
-                    "saved_quiz_id": "free-text",
+                    "saved_quiz_id": "no-answer",
                     "is_deleted": False,
                     "answer_package_json": json.dumps({"question": "text-only"}),
                 }
@@ -161,4 +152,4 @@ async def test_prepare_sets_reason_code_when_no_eligible_question_remains():
     assert result is not None
     assert result.startable is False
     assert result.eligible_question_count == 0
-    assert result.reason_code == "NO_ELIGIBLE_MULTIPLE_CHOICE"
+    assert result.reason_code == "NO_ELIGIBLE_QUESTIONS"

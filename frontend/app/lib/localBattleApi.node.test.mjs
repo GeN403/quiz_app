@@ -1,4 +1,4 @@
-﻿import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
@@ -36,14 +36,13 @@ test('getBattleReadySet は battle-ready 契約をフロント形式へ変換す
         non_multiple_choice_excluded_count: 1,
         eligible_question_count: 1,
         startable: false,
-        reason_code: 'NO_ELIGIBLE_MULTIPLE_CHOICE',
+        reason_code: 'NO_ELIGIBLE_QUESTIONS',
         questions: [
           {
             question_id: 'q-1',
             source_saved_quiz_id: 'saved-1',
             prompt: 'Q',
-            choices: [{ choice_id: 'a', text: 'A' }],
-            correct_choice_id: 'a',
+            correct_answer_text: '東京',
           },
         ],
       }),
@@ -53,9 +52,9 @@ test('getBattleReadySet は battle-ready 契約をフロント形式へ変換す
   const ready = await getBattleReadySet('set-1');
 
   assert.equal(ready.setId, 'set-1');
-  assert.equal(ready.reasonCode, 'NO_ELIGIBLE_MULTIPLE_CHOICE');
+  assert.equal(ready.reasonCode, 'NO_ELIGIBLE_QUESTIONS');
   assert.equal(ready.questions[0].questionId, 'q-1');
-  assert.equal(ready.questions[0].choices[0].choiceId, 'a');
+  assert.equal(ready.questions[0].correctAnswerText, '東京');
 });
 
 test('getBattleReadySet は 404 を NotFoundError として扱う', async () => {
