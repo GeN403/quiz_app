@@ -118,6 +118,13 @@ class TestGetSavedQuizzes:
         items = res.json()["items"]
         assert len(items) == 2
 
+    async def test_list_item_includes_question_and_answer(self, client):
+        await client.post("/saved-quizzes", json=make_payload("pkg_question_answer"))
+        res = await client.get("/saved-quizzes")
+        item = res.json()["items"][0]
+        assert item["question"] == VALID_PAYLOAD["answer_package"]["question"]
+        assert item["answer"] == VALID_PAYLOAD["answer_package"]["answer"]
+
     async def test_list_items_saved_at_desc_order(self, client):
         await client.post("/saved-quizzes", json=make_payload("pkg_first"))
         await client.post("/saved-quizzes", json=make_payload("pkg_second"))

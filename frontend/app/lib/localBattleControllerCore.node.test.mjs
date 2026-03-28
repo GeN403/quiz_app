@@ -1,10 +1,9 @@
-﻿import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
   createInitialBattleState,
   computeWinner,
-  getCurrentAnswerer,
   localBattleReducer,
   mapHttpErrorStatus,
   mapReasonCode,
@@ -45,6 +44,20 @@ test('mapReasonCode / mapHttpErrorStatus は reason_code と HTTP 系を分け�
   assert.equal(mapHttpErrorStatus(502), '通信エラーが発生しました。しばらくしてから再試行してください。');
 });
 
+test('LOCK_ANSWERER は未回答時に最初の入力だけ有効', () => {
+  let state = createInitialBattleState();
+  state = localBattleReducer(state, {
+    type: 'START_PLAYING',
+    preparedQuestions: [questionA],
+    shuffledQuestions: [questionA],
+  });
+
+  state = localBattleReducer(state, { type: 'LOCK_ANSWERER', answerer: 'player1' });
+  state = localBattleReducer(state, { type: 'LOCK_ANSWERER', answerer: 'player2' });
+
+  assert.equal(state.currentAnswerer, 'player1');
+});
+
 test('submitAnswer は同一問題で 1 回のみ有効（再回答禁止）', () => {
   let state = createInitialBattleState();
   state = localBattleReducer(state, {
@@ -53,11 +66,11 @@ test('submitAnswer は同一問題で 1 回のみ有効（再回答禁止）', (
     shuffledQuestions: [questionA],
   });
 
+  state = localBattleReducer(state, { type: 'LOCK_ANSWERER', answerer: 'player1' });
   state = localBattleReducer(state, {
     type: 'SUBMIT_ANSWER',
     selectedChoiceId: 'a',
     isCorrect: true,
-    answerer: 'player1',
   });
 
   const afterFirst = state.scores.player1;
@@ -66,7 +79,6 @@ test('submitAnswer は同一問題で 1 回のみ有効（再回答禁止）', (
     type: 'SUBMIT_ANSWER',
     selectedChoiceId: 'a',
     isCorrect: true,
-    answerer: 'player1',
   });
 
   assert.equal(afterFirst, 1);
@@ -90,11 +102,11 @@ test('REMATCH は名前を維持しつつスコアと進行を初期化する', 
     preparedQuestions: [questionA, questionB],
     shuffledQuestions: [questionA, questionB],
   });
+  state = localBattleReducer(state, { type: 'LOCK_ANSWERER', answerer: 'player1' });
   state = localBattleReducer(state, {
     type: 'SUBMIT_ANSWER',
     selectedChoiceId: 'a',
     isCorrect: true,
-    answerer: 'player1',
   });
 
   state = localBattleReducer(state, {
@@ -106,13 +118,8 @@ test('REMATCH は名前を維持しつつスコアと進行を初期化する', 
   assert.equal(state.playerNames.player2, 'B');
   assert.equal(state.scores.player1, 0);
   assert.equal(state.currentQuestionIndex, 0);
+  assert.equal(state.currentAnswerer, null);
   assert.equal(state.shuffledQuestions[0].questionId, 'q2');
-});
-
-test('currentQuestionIndex の偶奇で回答者を導出する', () => {
-  assert.equal(getCurrentAnswerer(0), 'player1');
-  assert.equal(getCurrentAnswerer(1), 'player2');
-  assert.equal(getCurrentAnswerer(2), 'player1');
 });
 
 test('START_PLAYING はスコアを 0-0 で初期化して playing へ遷移する', () => {
@@ -137,10 +144,11 @@ test('START_PLAYING はスコアを 0-0 で初期化して playing へ遷移す�
   assert.equal(state.scores.player1, 0);
   assert.equal(state.scores.player2, 0);
   assert.equal(state.currentQuestionIndex, 0);
+  assert.equal(state.currentAnswerer, null);
   assert.equal(state.questionAnswerStatus, 'unanswered');
 });
 
-test('通し遷移: 回答→次へ→結果→再戦で仕様どおりに遷移する', () => {
+test('通し遷移: 早押し→回答→次へ→結果→再戦で仕様どおりに遷移する', () => {
   let state = createInitialBattleState();
   state = localBattleReducer(state, {
     type: 'START_PLAYING',
@@ -148,18 +156,19 @@ test('通し遷移: 回答→次へ→結果→再戦で仕様どおりに遷移
     shuffledQuestions: [questionA, questionB],
   });
 
+  state = localBattleReducer(state, { type: 'LOCK_ANSWERER', answerer: 'player1' });
   state = localBattleReducer(state, {
     type: 'SUBMIT_ANSWER',
     selectedChoiceId: 'a',
     isCorrect: true,
-    answerer: 'player1',
   });
   state = localBattleReducer(state, { type: 'NEXT_QUESTION' });
+
+  state = localBattleReducer(state, { type: 'LOCK_ANSWERER', answerer: 'player2' });
   state = localBattleReducer(state, {
     type: 'SUBMIT_ANSWER',
     selectedChoiceId: 'd',
     isCorrect: true,
-    answerer: 'player2',
   });
   state = localBattleReducer(state, {
     type: 'SHOW_RESULT',
@@ -178,6 +187,7 @@ test('通し遷移: 回答→次へ→結果→再戦で仕様どおりに遷移
 
   assert.equal(state.phase, 'playing');
   assert.equal(state.currentQuestionIndex, 0);
+  assert.equal(state.currentAnswerer, null);
   assert.equal(state.scores.player1, 0);
   assert.equal(state.scores.player2, 0);
   assert.equal(state.shuffledQuestions[0].questionId, 'q2');

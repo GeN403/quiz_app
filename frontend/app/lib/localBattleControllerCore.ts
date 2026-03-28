@@ -1,4 +1,4 @@
-﻿export type BattlePhase = 'set_selection' | 'player_setup' | 'playing' | 'result';
+export type BattlePhase = 'set_selection' | 'player_setup' | 'playing' | 'result';
 export type PlayerSlot = 'player1' | 'player2';
 export type QuestionAnswerStatus = 'unanswered' | 'answered';
 export type StartBlockReasonCode = 'NO_ELIGIBLE_MULTIPLE_CHOICE';
@@ -43,6 +43,7 @@ export interface BattleState {
   preparedQuestions: BattleQuestion[];
   shuffledQuestions: BattleQuestion[];
   currentQuestionIndex: number;
+  currentAnswerer: PlayerSlot | null;
   questionAnswerStatus: QuestionAnswerStatus;
   answerResult: AnswerResult | null;
   scores: Record<PlayerSlot, number>;
@@ -69,11 +70,11 @@ export type BattleAction =
       preparedQuestions: BattleQuestion[];
       shuffledQuestions: BattleQuestion[];
     }
+  | { type: 'LOCK_ANSWERER'; answerer: PlayerSlot }
   | {
       type: 'SUBMIT_ANSWER';
       selectedChoiceId: string;
       isCorrect: boolean;
-      answerer: PlayerSlot;
     }
   | { type: 'NEXT_QUESTION' }
   | { type: 'SHOW_RESULT'; winner: PlayerSlot | 'draw' }
@@ -100,6 +101,7 @@ export function createInitialBattleState(): BattleState {
     preparedQuestions: [],
     shuffledQuestions: [],
     currentQuestionIndex: 0,
+    currentAnswerer: null,
     questionAnswerStatus: 'unanswered',
     answerResult: null,
     scores: {
@@ -157,19 +159,36 @@ export function localBattleReducer(state: BattleState, action: BattleAction): Ba
         preparedQuestions: action.preparedQuestions,
         shuffledQuestions: action.shuffledQuestions,
         currentQuestionIndex: 0,
+        currentAnswerer: null,
         questionAnswerStatus: 'unanswered',
         answerResult: null,
         scores: { player1: 0, player2: 0 },
         winner: null,
       };
+    case 'LOCK_ANSWERER':
+      if (
+        state.phase !== 'playing' ||
+        state.questionAnswerStatus === 'answered' ||
+        state.currentAnswerer !== null
+      ) {
+        return state;
+      }
+      return {
+        ...state,
+        currentAnswerer: action.answerer,
+      };
     case 'SUBMIT_ANSWER': {
-      if (state.phase !== 'playing' || state.questionAnswerStatus === 'answered') {
+      if (
+        state.phase !== 'playing' ||
+        state.questionAnswerStatus === 'answered' ||
+        state.currentAnswerer === null
+      ) {
         return state;
       }
 
       const nextScores = { ...state.scores };
       if (action.isCorrect) {
-        nextScores[action.answerer] += 1;
+        nextScores[state.currentAnswerer] += 1;
       }
 
       return {
@@ -186,6 +205,7 @@ export function localBattleReducer(state: BattleState, action: BattleAction): Ba
       return {
         ...state,
         currentQuestionIndex: state.currentQuestionIndex + 1,
+        currentAnswerer: null,
         questionAnswerStatus: 'unanswered',
         answerResult: null,
       };
@@ -201,6 +221,7 @@ export function localBattleReducer(state: BattleState, action: BattleAction): Ba
         phase: 'playing',
         shuffledQuestions: action.shuffledQuestions,
         currentQuestionIndex: 0,
+        currentAnswerer: null,
         questionAnswerStatus: 'unanswered',
         answerResult: null,
         scores: { player1: 0, player2: 0 },
@@ -218,6 +239,7 @@ export function localBattleReducer(state: BattleState, action: BattleAction): Ba
         preparedQuestions: [],
         shuffledQuestions: [],
         currentQuestionIndex: 0,
+        currentAnswerer: null,
         questionAnswerStatus: 'unanswered',
         answerResult: null,
         scores: { player1: 0, player2: 0 },
@@ -235,10 +257,6 @@ export function shuffleQuestions(questions: BattleQuestion[]): BattleQuestion[] 
     [copied[i], copied[j]] = [copied[j], copied[i]];
   }
   return copied;
-}
-
-export function getCurrentAnswerer(index: number): PlayerSlot {
-  return index % 2 === 0 ? 'player1' : 'player2';
 }
 
 export function validatePlayerNames(player1: string, player2: string): string | null {

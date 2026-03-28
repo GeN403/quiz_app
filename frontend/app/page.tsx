@@ -101,6 +101,7 @@ export default function Home() {
     handleResolveSource,
     handleGenerate,
     handleSubmitAnswer,
+    handleRevealAnswer,
     handleClearHistory,
     handlePreviousQuestion,
     handleNextQuestion,
@@ -484,7 +485,7 @@ export default function Home() {
           </Box>
 
           {/* 回答入力エリア */}
-          {judgmentResult === null && (
+          {judgmentResult === null && !showAnswer && (
             <Box sx={{ mt: 2 }}>
               <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
                 <TextField
@@ -513,6 +514,15 @@ export default function Home() {
                   sx={{ whiteSpace: "nowrap", minWidth: "100px" }}
                 >
                   回答する
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="large"
+                  onClick={handleRevealAnswer}
+                  disabled={isLoading}
+                  sx={{ whiteSpace: "nowrap", minWidth: "150px" }}
+                >
+                  回答せずに見る
                 </Button>
               </Box>
             </Box>
@@ -545,8 +555,8 @@ export default function Home() {
             </Paper>
           )}
 
-          {/* 正解例と解説（判定後に自動表示） */}
-          {judgmentResult !== null && (
+          {/* 正解例と解説（判定後、または回答スキップ時に表示） */}
+          {(judgmentResult !== null || showAnswer) && (
             <>
               {/* 想定解答（正解例） */}
               <Typography variant="h6" component="h3" sx={{ mt: 2, fontWeight: "bold" }}>

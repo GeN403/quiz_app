@@ -225,6 +225,12 @@ class TestListAll:
         assert rows[0].generation_result_id == "pkg_second"
         assert rows[1].generation_result_id == "pkg_first"
 
+    async def test_list_all_includes_question_and_answer(self, repo):
+        await repo.save(make_request("pkg_qa"))
+        rows = await repo.list_all()
+        assert rows[0].question == VALID_ANSWER_PACKAGE["question"]
+        assert rows[0].answer == VALID_ANSWER_PACKAGE["answer"]
+
     async def test_list_all_skips_corrupt_records_and_logs(self, repo, caplog):
         """スキーマ不正レコードをスキップし、他のレコードは返す"""
         import logging

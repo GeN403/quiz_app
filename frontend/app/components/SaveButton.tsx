@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button, Snackbar, Alert, CircularProgress } from '@mui/material';
 import {
   saveSavedQuiz,
@@ -21,8 +21,13 @@ export function SaveButton({ answerPackage, inputParams }: SaveButtonProps) {
   const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error' | 'info'>('success');
   const [snackbarOpen, setSnackbarOpen] = useState(false);
 
-  const hasPackageId = Boolean(answerPackage?.package_id);
-  const isDisabled = !hasPackageId || saveState === 'saving' || saveState === 'saved';
+  const packageId = typeof answerPackage?.package_id === 'string' ? answerPackage.package_id : null;
+  const hasPackageId = Boolean(packageId);
+  const isDisabled = !hasPackageId || !inputParams || saveState === 'saving' || saveState === 'saved';
+
+  useEffect(() => {
+    setSaveState('idle');
+  }, [packageId]);
 
   const handleSave = async () => {
     if (!answerPackage || !inputParams || !hasPackageId) return;

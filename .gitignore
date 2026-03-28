@@ -95,3 +95,6 @@ scripts/
 
 # BFG Repo-Cleaner レポート
 *.git.bfg-report/
+
+# Local SQLite database
+backend/quiz_app.db

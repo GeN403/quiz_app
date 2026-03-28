@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 保存済みクイズ API クライアント
  */
 
@@ -24,6 +24,8 @@ export interface SavedQuizListItem {
   saved_at: string;
   topic: string;
   question_count: number;
+  question: string;
+  answer: string;
 }
 
 export interface SavedQuizDetail {

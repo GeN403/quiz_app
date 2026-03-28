@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import {
   Alert,
@@ -16,6 +16,8 @@ interface LocalBattlePlayPanelProps {
   questionNumber: number;
   totalQuestions: number;
   answererName: string;
+  waitingForBuzz: boolean;
+  buzzHint: string;
   isSubmitting: boolean;
   isAnswered: boolean;
   selectedChoiceId: string | null;
@@ -29,6 +31,8 @@ export default function LocalBattlePlayPanel({
   questionNumber,
   totalQuestions,
   answererName,
+  waitingForBuzz,
+  buzzHint,
   isSubmitting,
   isAnswered,
   selectedChoiceId,
@@ -42,7 +46,15 @@ export default function LocalBattlePlayPanel({
         問題 {questionNumber} / {totalQuestions}
       </Typography>
 
-      <Typography variant="h6">回答者: {answererName}</Typography>
+      <Typography variant="h6">回答者: {answererName || '未確定'}</Typography>
+      <Typography variant="body2" color="text.secondary">
+        {buzzHint}
+      </Typography>
+
+      {waitingForBuzz && (
+        <Alert severity="info">F/J のどちらかを押して回答権を取ってください。</Alert>
+      )}
+
       <Typography variant="h5" sx={{ whiteSpace: 'pre-wrap' }}>
         {question.prompt}
       </Typography>
@@ -56,7 +68,7 @@ export default function LocalBattlePlayPanel({
               variant={isSelected ? 'contained' : 'outlined'}
               color={isSelected ? 'primary' : 'inherit'}
               onClick={() => onSubmitAnswer(choice.choiceId)}
-              disabled={isSubmitting || isAnswered}
+              disabled={waitingForBuzz || isSubmitting || isAnswered}
               sx={{ justifyContent: 'flex-start' }}
             >
               {choice.text}

@@ -1,4 +1,4 @@
-"""
+﻿"""
 保存済みクイズ関連 Pydantic スキーマ
 """
 
@@ -62,6 +62,8 @@ class SavedQuizListItem(BaseModel):
     saved_at: str
     topic: str
     question_count: int
+    question: str = ""
+    answer: str = ""
 
 
 class SavedQuizDetail(BaseModel):
