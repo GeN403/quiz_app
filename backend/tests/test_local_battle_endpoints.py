@@ -100,6 +100,7 @@ async def test_get_battle_ready_returns_aggregated_counts_and_questions(client):
     assert body["startable"] is True
     assert body["reason_code"] is None
     assert len(body["questions"]) == 2
+    assert "correct_answer_text" in body["questions"][0]
 
 
 async def test_get_battle_ready_returns_reason_code_when_no_eligible_questions(client):
@@ -115,7 +116,7 @@ async def test_get_battle_ready_returns_reason_code_when_no_eligible_questions(c
     body = res.json()
     assert body["startable"] is False
     assert body["eligible_question_count"] == 0
-    assert body["reason_code"] == "NO_ELIGIBLE_MULTIPLE_CHOICE"
+    assert body["reason_code"] == "NO_ELIGIBLE_QUESTIONS"
 
 
 async def test_get_battle_ready_returns_404_for_unknown_set(client):

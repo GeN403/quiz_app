@@ -14,22 +14,14 @@ const questionA = {
   questionId: 'q1',
   sourceSavedQuizId: 'saved-1',
   prompt: 'Q1',
-  choices: [
-    { choiceId: 'a', text: 'A' },
-    { choiceId: 'b', text: 'B' },
-  ],
-  correctChoiceId: 'a',
+  correctAnswerText: 'A',
 };
 
 const questionB = {
   questionId: 'q2',
   sourceSavedQuizId: 'saved-2',
   prompt: 'Q2',
-  choices: [
-    { choiceId: 'c', text: 'C' },
-    { choiceId: 'd', text: 'D' },
-  ],
-  correctChoiceId: 'd',
+  correctAnswerText: 'D',
 };
 
 test('validatePlayerNames は空欄を開始不可にする', () => {
@@ -39,7 +31,7 @@ test('validatePlayerNames は空欄を開始不可にする', () => {
 });
 
 test('mapReasonCode / mapHttpErrorStatus は reason_code と HTTP 系を分けて扱う', () => {
-  assert.equal(mapReasonCode('NO_ELIGIBLE_MULTIPLE_CHOICE'), '対戦に使用可能な選択肢型クイズがありません。');
+  assert.equal(mapReasonCode('NO_ELIGIBLE_QUESTIONS'), '対戦に使用可能なクイズがありません。');
   assert.equal(mapHttpErrorStatus(404), 'クイズセットが見つかりません。');
   assert.equal(mapHttpErrorStatus(502), '通信エラーが発生しました。しばらくしてから再試行してください。');
 });
@@ -69,7 +61,7 @@ test('submitAnswer は同一問題で 1 回のみ有効（再回答禁止）', (
   state = localBattleReducer(state, { type: 'LOCK_ANSWERER', answerer: 'player1' });
   state = localBattleReducer(state, {
     type: 'SUBMIT_ANSWER',
-    selectedChoiceId: 'a',
+    submittedText: 'A',
     isCorrect: true,
   });
 
@@ -77,7 +69,7 @@ test('submitAnswer は同一問題で 1 回のみ有効（再回答禁止）', (
 
   state = localBattleReducer(state, {
     type: 'SUBMIT_ANSWER',
-    selectedChoiceId: 'a',
+    submittedText: 'A',
     isCorrect: true,
   });
 
@@ -105,7 +97,7 @@ test('REMATCH は名前を維持しつつスコアと進行を初期化する', 
   state = localBattleReducer(state, { type: 'LOCK_ANSWERER', answerer: 'player1' });
   state = localBattleReducer(state, {
     type: 'SUBMIT_ANSWER',
-    selectedChoiceId: 'a',
+    submittedText: 'A',
     isCorrect: true,
   });
 
@@ -159,7 +151,7 @@ test('通し遷移: 早押し→回答→次へ→結果→再戦で仕様どお
   state = localBattleReducer(state, { type: 'LOCK_ANSWERER', answerer: 'player1' });
   state = localBattleReducer(state, {
     type: 'SUBMIT_ANSWER',
-    selectedChoiceId: 'a',
+    submittedText: 'A',
     isCorrect: true,
   });
   state = localBattleReducer(state, { type: 'NEXT_QUESTION' });
@@ -167,7 +159,7 @@ test('通し遷移: 早押し→回答→次へ→結果→再戦で仕様どお
   state = localBattleReducer(state, { type: 'LOCK_ANSWERER', answerer: 'player2' });
   state = localBattleReducer(state, {
     type: 'SUBMIT_ANSWER',
-    selectedChoiceId: 'd',
+    submittedText: 'D',
     isCorrect: true,
   });
   state = localBattleReducer(state, {

@@ -1,4 +1,4 @@
-﻿"""
+"""
 ローカル対戦用 Pydantic スキーマ
 """
 
@@ -9,17 +9,11 @@ from typing import Literal
 from pydantic import BaseModel
 
 
-class BattleChoice(BaseModel):
-    choice_id: str
-    text: str
-
-
 class BattleQuestion(BaseModel):
     question_id: str
     source_saved_quiz_id: str
     prompt: str
-    choices: list[BattleChoice]
-    correct_choice_id: str
+    correct_answer_text: str
 
 
 class BattleReadyResponse(BaseModel):
@@ -31,5 +25,5 @@ class BattleReadyResponse(BaseModel):
     non_multiple_choice_excluded_count: int
     eligible_question_count: int
     startable: bool
-    reason_code: Literal["NO_ELIGIBLE_MULTIPLE_CHOICE"] | None
+    reason_code: Literal["NO_ELIGIBLE_QUESTIONS"] | None
     questions: list[BattleQuestion]

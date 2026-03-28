@@ -1,11 +1,13 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import {
   Alert,
   Box,
   Button,
   Paper,
   Stack,
+  TextField,
   Typography,
 } from '@mui/material';
 
@@ -20,9 +22,8 @@ interface LocalBattlePlayPanelProps {
   buzzHint: string;
   isSubmitting: boolean;
   isAnswered: boolean;
-  selectedChoiceId: string | null;
   isCorrect: boolean | null;
-  onSubmitAnswer: (choiceId: string) => void;
+  onSubmitAnswer: (answerText: string) => void;
   onProceedNext: () => void;
 }
 
@@ -35,11 +36,28 @@ export default function LocalBattlePlayPanel({
   buzzHint,
   isSubmitting,
   isAnswered,
-  selectedChoiceId,
   isCorrect,
   onSubmitAnswer,
   onProceedNext,
 }: LocalBattlePlayPanelProps) {
+  const [inputValue, setInputValue] = useState('');
+
+  useEffect(() => {
+    setInputValue('');
+  }, [question.questionId]);
+
+  const handleSubmit = () => {
+    if (inputValue.trim() === '') return;
+    onSubmitAnswer(inputValue);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit();
+    }
+  };
+
   return (
     <Paper sx={{ p: 3, width: '100%', maxWidth: '760px', display: 'flex', flexDirection: 'column', gap: 2 }}>
       <Typography variant="subtitle2" color="text.secondary">
@@ -60,21 +78,22 @@ export default function LocalBattlePlayPanel({
       </Typography>
 
       <Stack spacing={1.5}>
-        {question.choices.map((choice) => {
-          const isSelected = selectedChoiceId === choice.choiceId;
-          return (
-            <Button
-              key={choice.choiceId}
-              variant={isSelected ? 'contained' : 'outlined'}
-              color={isSelected ? 'primary' : 'inherit'}
-              onClick={() => onSubmitAnswer(choice.choiceId)}
-              disabled={waitingForBuzz || isSubmitting || isAnswered}
-              sx={{ justifyContent: 'flex-start' }}
-            >
-              {choice.text}
-            </Button>
-          );
-        })}
+        <TextField
+          label="回答を入力"
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          disabled={waitingForBuzz || isSubmitting || isAnswered}
+          autoComplete="off"
+          fullWidth
+        />
+        <Button
+          variant="contained"
+          onClick={handleSubmit}
+          disabled={waitingForBuzz || isSubmitting || isAnswered || inputValue.trim() === ''}
+        >
+          回答する
+        </Button>
       </Stack>
 
       {isAnswered && (
@@ -82,6 +101,9 @@ export default function LocalBattlePlayPanel({
           <Alert severity={isCorrect ? 'success' : 'error'}>
             {isCorrect ? '正解です。' : '不正解です。'}
           </Alert>
+          <Typography variant="body2" color="text.secondary">
+            正解: {question.correctAnswerText}
+          </Typography>
           <Button variant="contained" onClick={onProceedNext}>
             {questionNumber >= totalQuestions ? '結果へ進む' : '次の問題へ進む'}
           </Button>

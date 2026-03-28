@@ -234,7 +234,6 @@ export default function LocalBattlePage() {
             buzzHint={`Fキー: ${player1Name} / Jキー: ${player2Name}`}
             isSubmitting={controller.isSubmitting}
             isAnswered={controller.questionAnswerStatus === 'answered'}
-            selectedChoiceId={controller.answerResult?.selectedChoiceId ?? null}
             isCorrect={controller.answerResult?.isCorrect ?? null}
             onSubmitAnswer={controller.submitAnswer}
             onProceedNext={controller.proceedNext}

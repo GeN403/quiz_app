@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ローカル対戦 API クライアント
  */
 
@@ -8,20 +8,14 @@ export interface BattleSetListItem {
   quizCount: number;
 }
 
-export interface BattleChoice {
-  choiceId: string;
-  text: string;
-}
-
 export interface BattleQuestion {
   questionId: string;
   sourceSavedQuizId: string;
   prompt: string;
-  choices: BattleChoice[];
-  correctChoiceId: string;
+  correctAnswerText: string;
 }
 
-export type StartBlockReasonCode = 'NO_ELIGIBLE_MULTIPLE_CHOICE';
+export type StartBlockReasonCode = 'NO_ELIGIBLE_QUESTIONS';
 
 export interface BattleReadySet {
   setId: string;
@@ -34,6 +28,11 @@ export interface BattleReadySet {
   startable: boolean;
   reasonCode: StartBlockReasonCode | null;
   questions: BattleQuestion[];
+}
+
+export interface AnswerResult {
+  submittedText: string;
+  isCorrect: boolean;
 }
 
 interface RawQuizSetListResponse {
@@ -58,11 +57,7 @@ interface RawBattleReadySet {
     question_id: string;
     source_saved_quiz_id: string;
     prompt: string;
-    choices: Array<{
-      choice_id: string;
-      text: string;
-    }>;
-    correct_choice_id: string;
+    correct_answer_text: string;
   }>;
 }
 
@@ -110,11 +105,7 @@ function mapBattleReadySet(raw: RawBattleReadySet): BattleReadySet {
       questionId: question.question_id,
       sourceSavedQuizId: question.source_saved_quiz_id,
       prompt: question.prompt,
-      choices: question.choices.map((choice) => ({
-        choiceId: choice.choice_id,
-        text: choice.text,
-      })),
-      correctChoiceId: question.correct_choice_id,
+      correctAnswerText: question.correct_answer_text,
     })),
   };
 }

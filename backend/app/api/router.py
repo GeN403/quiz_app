@@ -56,4 +56,8 @@ def create_api_router(gemini_model) -> APIRouter:
     from app.api.routes.quiz_sets import create_quiz_sets_router
     api_router.include_router(create_quiz_sets_router())
 
+    # /judge-answer エンドポイントを追加
+    from app.api.routes.judge_answer import create_judge_answer_router
+    api_router.include_router(create_judge_answer_router(gemini_model))
+
     return api_router

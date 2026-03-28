@@ -7,6 +7,24 @@ import {
   NotFoundError,
   UpstreamError,
 } from '../lib/localBattleApi';
+import { normalizeAnswer } from '../lib/utils';
+
+async function judgeAnswerWithAI(
+  question: string,
+  correctAnswer: string,
+  userAnswer: string,
+): Promise<boolean> {
+  const res = await fetch('/api/judge-answer', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question, correct_answer: correctAnswer, user_answer: userAnswer }),
+  });
+  if (!res.ok) {
+    throw new Error(`judge-answer failed: ${res.status}`);
+  }
+  const data = await res.json();
+  return Boolean(data.is_correct);
+}
 import {
   BattlePhase,
   BattleQuestion,
@@ -61,7 +79,7 @@ export interface LocalBattleController {
   updatePlayerName: (player: PlayerSlot, name: string) => void;
   startBattle: () => Promise<void>;
   lockAnswerer: (answerer: PlayerSlot) => void;
-  submitAnswer: (choiceId: string) => void;
+  submitAnswer: (answerText: string) => Promise<void>;
   proceedNext: () => void;
   rematch: () => void;
   backToSelection: () => void;
@@ -179,7 +197,7 @@ export function useLocalBattleController(): LocalBattleController {
   );
 
   const submitAnswer = useCallback(
-    (choiceId: string) => {
+    async (answerText: string) => {
       if (
         state.phase !== 'playing' ||
         state.questionAnswerStatus === 'answered' ||
@@ -196,14 +214,21 @@ export function useLocalBattleController(): LocalBattleController {
 
       dispatch({ type: 'SET_IS_SUBMITTING', value: true });
 
-      const isCorrect = choiceId === currentQuestion.correctChoiceId;
-      dispatch({
-        type: 'SUBMIT_ANSWER',
-        selectedChoiceId: choiceId,
-        isCorrect,
-      });
-
-      dispatch({ type: 'SET_IS_SUBMITTING', value: false });
+      try {
+        const isCorrect = await judgeAnswerWithAI(
+          currentQuestion.prompt,
+          currentQuestion.correctAnswerText,
+          answerText,
+        );
+        dispatch({ type: 'SUBMIT_ANSWER', submittedText: answerText, isCorrect });
+      } catch {
+        // AI 判定失敗時はテキスト正規化比較にフォールバック
+        const isCorrect =
+          normalizeAnswer(answerText) === normalizeAnswer(currentQuestion.correctAnswerText);
+        dispatch({ type: 'SUBMIT_ANSWER', submittedText: answerText, isCorrect });
+      } finally {
+        dispatch({ type: 'SET_IS_SUBMITTING', value: false });
+      }
     },
     [
       state.currentAnswerer,

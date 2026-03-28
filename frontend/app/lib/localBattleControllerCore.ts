@@ -1,7 +1,7 @@
 export type BattlePhase = 'set_selection' | 'player_setup' | 'playing' | 'result';
 export type PlayerSlot = 'player1' | 'player2';
 export type QuestionAnswerStatus = 'unanswered' | 'answered';
-export type StartBlockReasonCode = 'NO_ELIGIBLE_MULTIPLE_CHOICE';
+export type StartBlockReasonCode = 'NO_ELIGIBLE_QUESTIONS';
 
 export interface BattleSetListItem {
   setId: string;
@@ -9,21 +9,15 @@ export interface BattleSetListItem {
   quizCount: number;
 }
 
-export interface BattleChoice {
-  choiceId: string;
-  text: string;
-}
-
 export interface BattleQuestion {
   questionId: string;
   sourceSavedQuizId: string;
   prompt: string;
-  choices: BattleChoice[];
-  correctChoiceId: string;
+  correctAnswerText: string;
 }
 
 export interface AnswerResult {
-  selectedChoiceId: string;
+  submittedText: string;
   isCorrect: boolean;
 }
 
@@ -73,7 +67,7 @@ export type BattleAction =
   | { type: 'LOCK_ANSWERER'; answerer: PlayerSlot }
   | {
       type: 'SUBMIT_ANSWER';
-      selectedChoiceId: string;
+      submittedText: string;
       isCorrect: boolean;
     }
   | { type: 'NEXT_QUESTION' }
@@ -195,7 +189,7 @@ export function localBattleReducer(state: BattleState, action: BattleAction): Ba
         ...state,
         questionAnswerStatus: 'answered',
         answerResult: {
-          selectedChoiceId: action.selectedChoiceId,
+          submittedText: action.submittedText,
           isCorrect: action.isCorrect,
         },
         scores: nextScores,
@@ -267,8 +261,8 @@ export function validatePlayerNames(player1: string, player2: string): string | 
 }
 
 export function mapReasonCode(reasonCode: StartBlockReasonCode | null): string {
-  if (reasonCode === 'NO_ELIGIBLE_MULTIPLE_CHOICE') {
-    return '対戦に使用可能な選択肢型クイズがありません。';
+  if (reasonCode === 'NO_ELIGIBLE_QUESTIONS') {
+    return '対戦に使用可能なクイズがありません。';
   }
   return '対戦を開始できません。';
 }

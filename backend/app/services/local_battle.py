@@ -1,40 +1,40 @@
-﻿"""
+"""
 ローカル対戦向けの準備サービス
 """
 
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import Any, Mapping
 
 from app.repository.quiz_set import QuizSetRepository
-from app.schemas.local_battle import BattleChoice, BattleQuestion, BattleReadyResponse
+from app.schemas.local_battle import BattleQuestion, BattleReadyResponse
+
+
+@dataclass
+class _Choice:
+    choice_id: str
+    text: str
 
 
 class BattleQuestionClassifier:
-    """answer_package から multiple-choice 問題を抽出・正規化する。"""
+    """answer_package からプロンプトと正解テキストを抽出・正規化する。"""
 
     def classify(self, source_saved_quiz_id: str, answer_package: dict[str, object]) -> BattleQuestion | None:
         prompt = self._extract_prompt(answer_package)
         if prompt is None:
             return None
 
-        choices = self._extract_choices(answer_package.get("choices"))
-        if len(choices) < 2:
-            choices = self._build_fallback_choices(answer_package)
-        if len(choices) < 2:
-            return None
-
-        correct_choice_id = self._resolve_correct_choice_id(answer_package, choices)
-        if correct_choice_id is None:
+        correct_answer_text = self._extract_correct_answer_text(answer_package)
+        if correct_answer_text is None:
             return None
 
         return BattleQuestion(
             question_id=source_saved_quiz_id,
             source_saved_quiz_id=source_saved_quiz_id,
             prompt=prompt,
-            choices=choices,
-            correct_choice_id=correct_choice_id,
+            correct_answer_text=correct_answer_text,
         )
 
     def _extract_prompt(self, answer_package: Mapping[str, object]) -> str | None:
@@ -50,44 +50,22 @@ class BattleQuestionClassifier:
                     return nested
         return None
 
-    def _extract_choices(self, raw_choices: object) -> list[BattleChoice]:
-        if not isinstance(raw_choices, list):
-            return []
-
-        choices: list[BattleChoice] = []
-        used_choice_ids: set[str] = set()
-
-        for index, raw_choice in enumerate(raw_choices, start=1):
-            choice = self._normalize_choice(raw_choice, index)
-            if choice is None:
-                continue
-
-            choice_id = choice.choice_id
-            if choice_id in used_choice_ids:
-                choice_id = f"{choice_id}-{index}"
-
-            used_choice_ids.add(choice_id)
-            choices.append(BattleChoice(choice_id=choice_id, text=choice.text))
-
-        return choices
-
-    def _build_fallback_choices(self, answer_package: Mapping[str, object]) -> list[BattleChoice]:
-        """Build fallback choices when `choices` is missing."""
+    def _extract_correct_answer_text(self, answer_package: Mapping[str, object]) -> str | None:
+        # 1) direct answer field
         answer_text = self._extract_answer_text(answer_package)
-        if answer_text is None:
-            return []
+        if answer_text is not None:
+            return answer_text
 
-        choices = [BattleChoice(choice_id="correct", text=answer_text)]
-        for index, candidate in enumerate(self._build_distractor_candidates(answer_text), start=1):
-            if candidate == answer_text:
-                continue
-            if any(existing.text == candidate for existing in choices):
-                continue
-            choices.append(BattleChoice(choice_id=f"fallback-{index}", text=candidate))
-            if len(choices) >= 4:
-                break
+        # 2) derive from choices + correct choice reference
+        choices = self._extract_choices(answer_package.get("choices"))
+        if choices:
+            correct_choice_id = self._resolve_correct_choice_id(answer_package, choices)
+            if correct_choice_id is not None:
+                for choice in choices:
+                    if choice.choice_id == correct_choice_id:
+                        return choice.text
 
-        return choices if len(choices) >= 2 else []
+        return None
 
     def _extract_answer_text(self, answer_package: Mapping[str, object]) -> str | None:
         raw_answer = answer_package.get("answer")
@@ -101,21 +79,35 @@ class BattleQuestionClassifier:
 
         return None
 
-    def _build_distractor_candidates(self, answer_text: str) -> list[str]:
-        if answer_text.isdigit():
-            value = int(answer_text)
-            return [str(value + 1), str(value - 1 if value > 0 else 1), "0"]
+    def _extract_choices(self, raw_choices: object) -> list[_Choice]:
+        if not isinstance(raw_choices, list):
+            return []
 
-        return ["None of the above", "Unknown", "Other"]
+        choices: list[_Choice] = []
+        used_choice_ids: set[str] = set()
 
-    def _normalize_choice(self, raw_choice: object, index: int) -> BattleChoice | None:
+        for index, raw_choice in enumerate(raw_choices, start=1):
+            choice = self._normalize_choice(raw_choice, index)
+            if choice is None:
+                continue
+
+            choice_id = choice.choice_id
+            if choice_id in used_choice_ids:
+                choice_id = f"{choice_id}-{index}"
+
+            used_choice_ids.add(choice_id)
+            choices.append(_Choice(choice_id=choice_id, text=choice.text))
+
+        return choices
+
+    def _normalize_choice(self, raw_choice: object, index: int) -> _Choice | None:
         default_choice_id = f"choice-{index}"
 
         if isinstance(raw_choice, str):
             text = raw_choice.strip()
             if not text:
                 return None
-            return BattleChoice(choice_id=default_choice_id, text=text)
+            return _Choice(choice_id=default_choice_id, text=text)
 
         if not isinstance(raw_choice, dict):
             return None
@@ -125,12 +117,12 @@ class BattleQuestionClassifier:
             return None
 
         choice_id = self._pick_string(raw_choice, ("choice_id", "choiceId", "id", "key"))
-        return BattleChoice(choice_id=choice_id or default_choice_id, text=text)
+        return _Choice(choice_id=choice_id or default_choice_id, text=text)
 
     def _resolve_correct_choice_id(
         self,
         answer_package: Mapping[str, object],
-        choices: list[BattleChoice],
+        choices: list[_Choice],
     ) -> str | None:
         # 1) choice id 系の指定
         for key in ("correct_choice_id", "correctChoiceId"):
@@ -151,7 +143,7 @@ class BattleQuestionClassifier:
 
         return None
 
-    def _resolve_choice_reference(self, raw_reference: object, choices: list[BattleChoice]) -> str | None:
+    def _resolve_choice_reference(self, raw_reference: object, choices: list[_Choice]) -> str | None:
         if isinstance(raw_reference, int):
             if 0 <= raw_reference < len(choices):
                 return choices[raw_reference].choice_id
@@ -241,7 +233,7 @@ class BattlePreparationService:
             non_multiple_choice_excluded_count=non_multiple_choice_excluded_count,
             eligible_question_count=eligible_question_count,
             startable=startable,
-            reason_code=None if startable else "NO_ELIGIBLE_MULTIPLE_CHOICE",
+            reason_code=None if startable else "NO_ELIGIBLE_QUESTIONS",
             questions=questions,
         )
 
